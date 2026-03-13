@@ -1,0 +1,77 @@
+.section {
+  margin-bottom: var(--space-8);
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+.sectionTitle {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.sectionTotal {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
+.tableWrapper {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  overflow-x: auto;
+}
+
+.subLabel {
+  display: block;
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--color-text-muted);
+  text-transform: lowercase;
+  letter-spacing: 0;
+}
+
+.lineItemName {
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.lineItemDesc {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+.totalRow td {
+  background: var(--color-bg-secondary);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  border-top: 2px solid var(--color-border);
+}
+
+.grandTotal {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-5) var(--space-6);
+  background: var(--color-accent-subtle);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: var(--radius-lg);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.grandTotalAmount {
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  color: var(--color-accent);
+  font-variant-numeric: tabular-nums;
+}

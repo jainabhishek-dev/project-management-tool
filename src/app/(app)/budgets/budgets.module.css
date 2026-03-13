@@ -1,0 +1,29 @@
+.tableWrapper {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  overflow-x: auto;
+}
+
+.budgetLink {
+  font-weight: 600;
+  color: var(--color-text-primary);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+.budgetLink:hover {
+  color: var(--color-accent);
+}
+
+.budgetDesc {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+.youTag {
+  color: var(--color-accent);
+  font-size: var(--font-size-xs);
+}
