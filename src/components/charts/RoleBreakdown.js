@@ -17,14 +17,16 @@ export default function RoleBreakdown({ budgets }) {
       });
 
       // Then tally the costs from all norms across all line items
-      (budget.budget_line_items || []).forEach(item => {
-        (item.budget_norms || []).forEach(norm => {
-          const roleName = roleNamesMap[norm.role_id] || 'Unknown Role';
-          const cost = parseFloat(norm.total_cost) || 0;
-          
-          if (cost > 0) {
-            roleTotals[roleName] = (roleTotals[roleName] || 0) + cost;
-          }
+      (budget.budget_sections || []).forEach(section => {
+        (section.budget_line_items || []).forEach(item => {
+          (item.budget_norms || []).forEach(norm => {
+            const roleName = roleNamesMap[norm.role_id] || 'Unknown Role';
+            const cost = parseFloat(norm.total_cost) || 0;
+            
+            if (cost > 0) {
+              roleTotals[roleName] = (roleTotals[roleName] || 0) + cost;
+            }
+          });
         });
       });
     });

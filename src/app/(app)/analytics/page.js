@@ -8,19 +8,26 @@ import styles from './analytics.module.css';
 export default async function AnalyticsPage() {
   const supabase = await getSupabaseServerClient();
 
-  const { data: budgets } = await supabase
+  const { data: budgets, error } = await supabase
     .from('budgets')
     .select(`
       id, name, status, total_estimated_budget, currency, created_at,
       projects ( project_name ),
       profiles:created_by ( full_name, email ),
-      budget_sections ( subtotal, name ),
-      budget_roles ( id, name ),
-      budget_line_items (
-        budget_norms ( role_id, total_cost )
-      )
+      budget_sections ( 
+        subtotal, 
+        name,
+        budget_line_items (
+          budget_norms ( role_id, total_cost )
+        )
+      ),
+      budget_roles ( id, name )
     `)
     .order('total_estimated_budget', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching analytics budgets:', error);
+  }
 
   const total = (budgets || []).reduce(
     (sum, b) => sum + (parseFloat(b.total_estimated_budget) || 0), 0
