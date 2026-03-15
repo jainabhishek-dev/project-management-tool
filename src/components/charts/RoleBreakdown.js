@@ -44,6 +44,12 @@ export default function RoleBreakdown({ budgets }) {
     );
   }
 
+  const COLORS = [
+    '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', 
+    '#f97316', '#eab308', '#22c55e', '#0ea5e9',
+    '#14b8a6', '#84cc16', '#d946ef', '#3b82f6'
+  ];
+
   const formatTooltipEntry = (value) => {
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
@@ -91,10 +97,13 @@ export default function RoleBreakdown({ budgets }) {
           />
           <Bar 
             dataKey="value" 
-            fill="var(--color-primary)" 
             radius={[4, 4, 0, 0]} 
             name="Total Cost"
-          />
+          >
+            {data.map((entry, index) => (
+              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+            ))}
+          </Bar>
         </BarChart>
       </ResponsiveContainer>
     </div>

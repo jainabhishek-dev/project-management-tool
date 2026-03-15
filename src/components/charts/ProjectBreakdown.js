@@ -28,10 +28,10 @@ export default function ProjectBreakdown({ budgets }) {
     );
   }
 
+  // Warm palette for Projects
   const COLORS = [
-    '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', 
-    '#f97316', '#eab308', '#22c55e', '#0ea5e9',
-    '#14b8a6', '#84cc16', '#d946ef', '#3b82f6'
+    '#f43f5e', '#ec4899', '#f97316', '#eab308', 
+    '#ef4444', '#d946ef', '#a855f7', '#fbbf24'
   ];
 
   const formatTooltipEntry = (value) => {
