@@ -99,15 +99,18 @@ export default function NewProjectPage() {
 
           <div className="form-group">
             <label htmlFor="academic_year" className="form-label">Academic Year</label>
-            <input
+            <select
               id="academic_year"
               name="academic_year"
-              type="text"
               className="form-input"
-              placeholder="e.g. 2024-25"
               value={form.academic_year}
               onChange={handleChange}
-            />
+            >
+              <option value="">Select an Academic Year</option>
+              {['AY25-26', 'AY26-27', 'AY27-28'].map(ay => (
+                <option key={ay} value={ay}>{ay}</option>
+              ))}
+            </select>
           </div>
 
           <div className="form-group">
