@@ -2,25 +2,27 @@ import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
 import * as tools from '@/lib/ai/tools';
 
-// Initialize the Gemini client
-const client = new GoogleGenAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY);
+// Initialize the Gemini v2 client
+const client = new GoogleGenAI({
+  apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY
+});
 
-// Define tools for the model
+// Define tools for the model in OpenAI-compatible format (used by genai v2)
 const toolDefinitions = [
   {
     functionDeclarations: [
       {
         name: 'list_all_projects',
         description: 'Lists all projects in the database, including their academic years.',
-        parameters: { type: 'object', properties: {} }
+        parameters: { type: 'OBJECT', properties: {} }
       },
       {
         name: 'get_project_details',
         description: 'Gets detailed information for a specific project by name.',
         parameters: {
-          type: 'object',
+          type: 'OBJECT',
           properties: {
-            projectName: { type: 'string', description: 'The name of the project to look up.' }
+            projectName: { type: 'STRING', description: 'The name of the project to look up.' }
           },
           required: ['projectName']
         }
@@ -29,9 +31,9 @@ const toolDefinitions = [
         name: 'get_budgets_for_project',
         description: 'Lists all budget versions across all stages for a specific project.',
         parameters: {
-          type: 'object',
+          type: 'OBJECT',
           properties: {
-            projectName: { type: 'string', description: 'The name of the project.' }
+            projectName: { type: 'STRING', description: 'The name of the project.' }
           },
           required: ['projectName']
         }
@@ -40,9 +42,9 @@ const toolDefinitions = [
         name: 'get_budget_breakdown_by_role',
         description: 'Gets the financial breakdown (costs) grouped by professional roles for a specific budget ID.',
         parameters: {
-          type: 'object',
+          type: 'OBJECT',
           properties: {
-            budgetId: { type: 'string', description: 'The unique UUID of the budget.' }
+            budgetId: { type: 'STRING', description: 'The unique UUID of the budget.' }
           },
           required: ['budgetId']
         }
@@ -51,9 +53,9 @@ const toolDefinitions = [
         name: 'get_budget_breakdown_by_section',
         description: 'Gets the financial breakdown (subtotals) grouped by operational sections for a specific budget ID.',
         parameters: {
-          type: 'object',
+          type: 'OBJECT',
           properties: {
-            budgetId: { type: 'string', description: 'The unique UUID of the budget.' }
+            budgetId: { type: 'STRING', description: 'The unique UUID of the budget.' }
           },
           required: ['budgetId']
         }
@@ -62,10 +64,10 @@ const toolDefinitions = [
         name: 'find_costliest_line_items',
         description: 'Finds the top 5 most expensive individual tasks/line items in a specific budget ID.',
         parameters: {
-          type: 'object',
+          type: 'OBJECT',
           properties: {
-            budgetId: { type: 'string', description: 'The unique UUID of the budget.' },
-            limit: { type: 'integer', description: 'Number of items to return (default 5).' }
+            budgetId: { type: 'STRING', description: 'The unique UUID of the budget.' },
+            limit: { type: 'NUMBER', description: 'Number of items to return (default 5).' }
           },
           required: ['budgetId']
         }
@@ -73,15 +75,15 @@ const toolDefinitions = [
       {
         name: 'get_org_summary_stats',
         description: 'Gets high-level organization-wide budget statistics across all projects.',
-        parameters: { type: 'object', properties: {} }
+        parameters: { type: 'OBJECT', properties: {} }
       },
       {
         name: 'search_budgets_by_status',
         description: 'Finds all budgets across the organization with a specific status (draft, submitted, approved, rejected).',
         parameters: {
-          type: 'object',
+          type: 'OBJECT',
           properties: {
-            status: { type: 'string', description: 'The status to filter by.' }
+            status: { type: 'STRING', description: 'The status to filter by.' }
           },
           required: ['status']
         }
@@ -94,53 +96,88 @@ export async function POST(req) {
   try {
     const { messages } = await req.json();
     
-    // Use Gemini 3.1 Pro Preview for best reasoning and tool use
-    const model = client.getGenerativeModel({ 
-      model: 'gemini-3.1-pro-preview',
-      tools: toolDefinitions 
-    });
-
-    const chat = model.startChat({
-      history: messages.slice(0, -1).map(m => ({
-        role: m.role === 'user' ? 'user' : 'model',
-        parts: [{ text: m.content }]
-      }))
-    });
-
+    // In @google/genai v2, we use models.generateContent directly
+    const modelId = 'gemini-2.0-flash'; // Using the latest stable powerful model for genai v2
     const lastMessage = messages[messages.length - 1].content;
-    let result = await chat.sendMessage(lastMessage);
-    let response = result.response;
 
-    // Handle Function Calling Loop
-    const callCountLimit = 10;
-    let callCount = 0;
+    // Construct conversation history
+    const history = messages.slice(0, -1).map(m => ({
+      role: m.role === 'user' ? 'user' : 'model',
+      content: m.content
+    }));
 
-    while (response.candidates[0].content.parts.some(p => p.functionCall) && callCount < callCountLimit) {
-      callCount++;
-      const functionCalls = response.candidates[0].content.parts
-        .filter(p => p.functionCall)
-        .map(p => p.functionCall);
+    // Start of the tool loop
+    let currentMessages = [...history, { role: 'user', content: lastMessage }];
+    let finalContent = '';
+    let loopCount = 0;
+    const MAX_LOOPS = 5;
 
-      const toolResults = await Promise.all(functionCalls.map(async (call) => {
-        const fn = tools[call.name];
-        if (!fn) return { name: call.name, response: { error: 'Function not found' } };
-        
-        try {
-          const res = await fn(...Object.values(call.args));
-          return { name: call.name, response: { content: res } };
-        } catch (err) {
-          return { name: call.name, response: { error: err.message } };
-        }
-      }));
+    while (loopCount < MAX_LOOPS) {
+      loopCount++;
 
-      result = await chat.sendMessage(toolResults.map(tr => ({
-        functionResponse: tr
-      })));
-      response = result.response;
+      const result = await client.models.generateContent({
+        model: modelId,
+        contents: currentMessages,
+        tools: toolDefinitions,
+        systemInstruction: "You are an expert LeadSchool Finance Analyst. Use the provided tools to fetch real data from the database. Do not hallucinate. Format financial data in clear tables or bold text."
+      });
+
+      const choice = result.candidates[0].content;
+      
+      // If there's a tool call (functionCall)
+      const functionCalls = choice.parts.filter(p => p.functionCall);
+      
+      if (functionCalls.length > 0) {
+        // Add the model's tool request to history
+        currentMessages.push(choice);
+
+        // Execute all requested tools
+        const responses = await Promise.all(functionCalls.map(async (call) => {
+          const fnName = call.functionCall.name;
+          const args = call.functionCall.args;
+          const fn = tools[fnName];
+
+          console.log(`AI invoking tool: ${fnName}`, args);
+
+          try {
+            const toolData = await fn(...Object.values(args));
+            return {
+              role: 'tool',
+              content: [
+                {
+                  functionResponse: {
+                    name: fnName,
+                    response: { content: toolData }
+                  }
+                }
+              ]
+            };
+          } catch (err) {
+            return {
+              role: 'tool',
+              content: [
+                {
+                  functionResponse: {
+                    name: fnName,
+                    response: { error: err.message }
+                  }
+                }
+              ]
+            };
+          }
+        }));
+
+        // Add tool responses to history for the next turn
+        currentMessages.push(...responses);
+      } else {
+        // No more tool calls, we have the final answer
+        finalContent = choice.parts.map(p => p.text).join(' ');
+        break;
+      }
     }
 
     return NextResponse.json({ 
-      content: response.candidates[0].content.parts[0].text 
+      content: finalContent || "I'm sorry, I couldn't process that request."
     });
 
   } catch (error) {
