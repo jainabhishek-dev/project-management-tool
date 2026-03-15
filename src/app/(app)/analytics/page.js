@@ -3,16 +3,20 @@ import { formatCurrency } from '@/lib/utils/budget-calculations';
 import Header from '@/components/layout/Header';
 import SectionBreakdown from '@/components/charts/SectionBreakdown';
 import RoleBreakdown from '@/components/charts/RoleBreakdown';
+import YearFilter from '@/components/ui/YearFilter';
 import styles from './analytics.module.css';
 
-export default async function AnalyticsPage() {
+export default async function AnalyticsPage({ searchParams }) {
+  const resolvedParams = await Promise.resolve(searchParams);
+  const selectedAy = resolvedParams?.ay;
+  
   const supabase = await getSupabaseServerClient();
 
   const { data: budgets, error } = await supabase
     .from('budgets')
     .select(`
       id, name, status, total_estimated_budget, currency, created_at,
-      projects ( project_name ),
+      projects ( project_name, academic_year ),
       profiles:created_by ( full_name, email ),
       budget_sections ( 
         subtotal, 
@@ -29,15 +33,20 @@ export default async function AnalyticsPage() {
     console.error('Error fetching analytics budgets:', error);
   }
 
-  const total = (budgets || []).reduce(
+  const allBudgets = budgets || [];
+  const filteredBudgets = selectedAy && selectedAy !== 'All' 
+    ? allBudgets.filter(b => b.projects?.academic_year === selectedAy)
+    : allBudgets;
+
+  const total = filteredBudgets.reduce(
     (sum, b) => sum + (parseFloat(b.total_estimated_budget) || 0), 0
   );
 
-  const approved = (budgets || [])
+  const approved = filteredBudgets
     .filter((b) => b.status === 'approved')
     .reduce((sum, b) => sum + (parseFloat(b.total_estimated_budget) || 0), 0);
 
-  const byStatus = (budgets || []).reduce((acc, b) => {
+  const byStatus = filteredBudgets.reduce((acc, b) => {
     acc[b.status] = (acc[b.status] || 0) + 1;
     return acc;
   }, {});
@@ -52,12 +61,13 @@ export default async function AnalyticsPage() {
       <Header
         title="Analytics"
         subtitle="Budget overview and breakdowns across the organisation."
+        actions={<YearFilter />}
       />
 
       <div className="stats-grid">
         <div className="stat-card">
           <p className="stat-label">All Budgets</p>
-          <p className="stat-value">{budgets?.length ?? 0}</p>
+          <p className="stat-value">{filteredBudgets.length}</p>
         </div>
         <div className="stat-card">
           <p className="stat-label">Total Value</p>
@@ -92,11 +102,11 @@ export default async function AnalyticsPage() {
       <div className={styles.chartsContainer}>
         <div className={styles.chartCard}>
           <h3 className={styles.chartTitle}>Budget by Section</h3>
-          <SectionBreakdown budgets={budgets} />
+          <SectionBreakdown budgets={filteredBudgets} />
         </div>
         <div className={styles.chartCard}>
           <h3 className={styles.chartTitle}>Budget by Role</h3>
-          <RoleBreakdown budgets={budgets} />
+          <RoleBreakdown budgets={filteredBudgets} />
         </div>
       </div>
 
@@ -116,7 +126,7 @@ export default async function AnalyticsPage() {
               </tr>
             </thead>
             <tbody>
-              {(budgets || []).map((b) => {
+              {filteredBudgets.map((b) => {
                 const pct = total > 0 ? ((b.total_estimated_budget / total) * 100).toFixed(1) : 0;
                 return (
                   <tr key={b.id}>
