@@ -99,10 +99,7 @@ export default async function BudgetDetailPage({ params }) {
           <p className="stat-label">Sections</p>
           <p className="stat-value">{sections.length}</p>
         </div>
-        <div className="stat-card">
-          <p className="stat-label">Working Days / Month</p>
-          <p className="stat-value">{budget.working_days_per_month}</p>
-        </div>
+
       </div>
 
       {/* Roles table */}

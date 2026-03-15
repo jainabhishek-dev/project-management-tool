@@ -454,23 +454,7 @@ export default function NewBudgetPage() {
                 value={info.description} onChange={handleInfoChange}
               />
             </div>
-            <div className={styles.twoCol}>
-              <div className="form-group">
-                <label className="form-label">Working Days / Month</label>
-                <input
-                  type="number" name="working_days_per_month" className="form-input"
-                  min={1} max={31} value={info.working_days_per_month} onChange={handleInfoChange}
-                />
-                <p className="form-hint">Used to calculate daily rate from monthly cost.</p>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Currency</label>
-                <select name="currency" className="form-input" value={info.currency} onChange={handleInfoChange}>
-                  <option value="INR">INR (₹)</option>
-                  <option value="USD">USD ($)</option>
-                </select>
-              </div>
-            </div>
+
           </div>
         )}
 
