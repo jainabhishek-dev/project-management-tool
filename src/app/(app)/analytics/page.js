@@ -2,6 +2,7 @@ import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { formatCurrency } from '@/lib/utils/budget-calculations';
 import Header from '@/components/layout/Header';
 import SectionBreakdown from '@/components/charts/SectionBreakdown';
+import ProjectBreakdown from '@/components/charts/ProjectBreakdown';
 import RoleBreakdown from '@/components/charts/RoleBreakdown';
 import YearFilter from '@/components/ui/YearFilter';
 import styles from './analytics.module.css';
@@ -103,6 +104,10 @@ export default async function AnalyticsPage({ searchParams }) {
         <div className={styles.chartCard}>
           <h3 className={styles.chartTitle}>Budget by Section</h3>
           <SectionBreakdown budgets={filteredBudgets} />
+        </div>
+        <div className={styles.chartCard}>
+          <h3 className={styles.chartTitle}>Budget by Project</h3>
+          <ProjectBreakdown budgets={filteredBudgets} />
         </div>
         <div className={styles.chartCard}>
           <h3 className={styles.chartTitle}>Budget by Role</h3>
