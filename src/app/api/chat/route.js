@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { GenAI } from '@google/genai';
+import { GoogleGenAI } from '@google/genai';
 import * as tools from '@/lib/ai/tools';
 
 // Initialize the Gemini client
-const client = new GenAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY);
+const client = new GoogleGenAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY);
 
 // Define tools for the model
 const toolDefinitions = [
