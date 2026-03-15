@@ -216,9 +216,11 @@ RULES:
           parts: functionResponseParts
         });
       } else {
-        // Final response is now a structured JSON string
+        // Final response logic: Carefully find the JSON part, ignoring thinking/monologue parts
+        const finalJsonPart = candidate.parts.find(p => p.text && !p.thought);
+        
         return NextResponse.json({ 
-          content: candidate.parts[0].text
+          content: finalJsonPart ? finalJsonPart.text : "{ \"error\": \"No valid data returned\" }"
         });
       }
     }
