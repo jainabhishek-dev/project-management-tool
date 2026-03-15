@@ -1,28 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import * as tools from '@/lib/ai/tools';
 
-// Initialize the Gemini v2 client
+// Initialize the Gemini client
 const client = new GoogleGenAI({
   apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY
 });
 
-// Define tools for the model in OpenAI-compatible format (used by genai v2)
+// Use Type enum as per documentation for schema consistency
 const toolDefinitions = [
   {
     functionDeclarations: [
       {
         name: 'list_all_projects',
         description: 'Lists all projects in the database, including their academic years.',
-        parameters: { type: 'OBJECT', properties: {} }
+        parameters: { type: Type.OBJECT, properties: {} }
       },
       {
         name: 'get_project_details',
         description: 'Gets detailed information for a specific project by name.',
         parameters: {
-          type: 'OBJECT',
+          type: Type.OBJECT,
           properties: {
-            projectName: { type: 'STRING', description: 'The name of the project to look up.' }
+            projectName: { type: Type.STRING, description: 'The name of the project to look up.' }
           },
           required: ['projectName']
         }
@@ -31,9 +31,9 @@ const toolDefinitions = [
         name: 'get_budgets_for_project',
         description: 'Lists all budget versions across all stages for a specific project.',
         parameters: {
-          type: 'OBJECT',
+          type: Type.OBJECT,
           properties: {
-            projectName: { type: 'STRING', description: 'The name of the project.' }
+            projectName: { type: Type.STRING, description: 'The name of the project.' }
           },
           required: ['projectName']
         }
@@ -42,9 +42,9 @@ const toolDefinitions = [
         name: 'get_budget_breakdown_by_role',
         description: 'Gets the financial breakdown (costs) grouped by professional roles for a specific budget ID.',
         parameters: {
-          type: 'OBJECT',
+          type: Type.OBJECT,
           properties: {
-            budgetId: { type: 'STRING', description: 'The unique UUID of the budget.' }
+            budgetId: { type: Type.STRING, description: 'The unique UUID of the budget.' }
           },
           required: ['budgetId']
         }
@@ -53,9 +53,9 @@ const toolDefinitions = [
         name: 'get_budget_breakdown_by_section',
         description: 'Gets the financial breakdown (subtotals) grouped by operational sections for a specific budget ID.',
         parameters: {
-          type: 'OBJECT',
+          type: Type.OBJECT,
           properties: {
-            budgetId: { type: 'STRING', description: 'The unique UUID of the budget.' }
+            budgetId: { type: Type.STRING, description: 'The unique UUID of the budget.' }
           },
           required: ['budgetId']
         }
@@ -64,10 +64,10 @@ const toolDefinitions = [
         name: 'find_costliest_line_items',
         description: 'Finds the top 5 most expensive individual tasks/line items in a specific budget ID.',
         parameters: {
-          type: 'OBJECT',
+          type: Type.OBJECT,
           properties: {
-            budgetId: { type: 'STRING', description: 'The unique UUID of the budget.' },
-            limit: { type: 'NUMBER', description: 'Number of items to return (default 5).' }
+            budgetId: { type: Type.STRING, description: 'The unique UUID of the budget.' },
+            limit: { type: Type.NUMBER, description: 'Number of items to return (default 5).' }
           },
           required: ['budgetId']
         }
@@ -75,15 +75,15 @@ const toolDefinitions = [
       {
         name: 'get_org_summary_stats',
         description: 'Gets high-level organization-wide budget statistics across all projects.',
-        parameters: { type: 'OBJECT', properties: {} }
+        parameters: { type: Type.OBJECT, properties: {} }
       },
       {
         name: 'search_budgets_by_status',
         description: 'Finds all budgets across the organization with a specific status (draft, submitted, approved, rejected).',
         parameters: {
-          type: 'OBJECT',
+          type: Type.OBJECT,
           properties: {
-            status: { type: 'STRING', description: 'The status to filter by.' }
+            status: { type: Type.STRING, description: 'The status to filter by.' }
           },
           required: ['status']
         }
@@ -96,92 +96,96 @@ export async function POST(req) {
   try {
     const { messages } = await req.json();
     
-    // In @google/genai v2, we use models.generateContent directly
-    const modelId = 'gemini-2.0-flash'; // Using the latest stable powerful model for genai v2
-    const lastMessage = messages[messages.length - 1].content;
+    // Model Selection: Gemini 3.1 Pro Preview as per docs
+    const modelId = 'gemini-3.1-pro-preview';
 
-    // Construct conversation history
-    const history = messages.slice(0, -1).map(m => ({
+    // Step 1: Initialize conversation history with strict Parts structure
+    // This avoids the "required oneof field 'data'" error
+    let contents = messages.map(m => ({
       role: m.role === 'user' ? 'user' : 'model',
-      content: m.content
+      parts: [{ text: m.content }]
     }));
 
-    // Start of the tool loop
-    let currentMessages = [...history, { role: 'user', content: lastMessage }];
     let finalContent = '';
     let loopCount = 0;
     const MAX_LOOPS = 5;
+
+    // Step 2: Generation config with thinking enabled for better reasoning
+    const config = {
+      tools: toolDefinitions,
+      thinkingConfig: { includeThoughts: true },
+      systemInstruction: "You are an expert LeadSchool Finance Analyst. Use the provided tools to fetch real data from the database. Do not hallucinate. Format financial data in clear tables or bold text. If multiple tools are needed to answer a query (like getting a project name then its budget), call them sequentially."
+    };
 
     while (loopCount < MAX_LOOPS) {
       loopCount++;
 
       const result = await client.models.generateContent({
         model: modelId,
-        contents: currentMessages,
-        tools: toolDefinitions,
-        systemInstruction: "You are an expert LeadSchool Finance Analyst. Use the provided tools to fetch real data from the database. Do not hallucinate. Format financial data in clear tables or bold text."
+        contents: contents,
+        config: config
       });
 
-      const choice = result.candidates[0].content;
+      const candidate = result.candidates[0].content;
       
-      // If there's a tool call (functionCall)
-      const functionCalls = choice.parts.filter(p => p.functionCall);
+      // Check for function calls in the model's preferred response segment
+      const functionCalls = result.functionCalls;
       
-      if (functionCalls.length > 0) {
-        // Add the model's tool request to history
-        currentMessages.push(choice);
+      if (functionCalls && functionCalls.length > 0) {
+        // RULE (from docs): Return the entire response part (including thoughtSignature) back to history
+        contents.push(candidate);
 
         // Execute all requested tools
-        const responses = await Promise.all(functionCalls.map(async (call) => {
-          const fnName = call.functionCall.name;
-          const args = call.functionCall.args;
+        const functionResponseParts = await Promise.all(functionCalls.map(async (call) => {
+          const fnName = call.name;
+          const args = call.args;
           const fn = tools[fnName];
 
-          console.log(`AI invoking tool: ${fnName}`, args);
+          console.log(`LeadSchool AI invoking: ${fnName}`, args);
 
           try {
             const toolData = await fn(...Object.values(args));
             return {
-              role: 'tool',
-              content: [
-                {
-                  functionResponse: {
-                    name: fnName,
-                    response: { content: toolData }
-                  }
-                }
-              ]
+              functionResponse: {
+                name: fnName,
+                response: { result: toolData }
+              }
             };
           } catch (err) {
             return {
-              role: 'tool',
-              content: [
-                {
-                  functionResponse: {
-                    name: fnName,
-                    response: { error: err.message }
-                  }
-                }
-              ]
+              functionResponse: {
+                name: fnName,
+                response: { error: err.message }
+              }
             };
           }
         }));
 
-        // Add tool responses to history for the next turn
-        currentMessages.push(...responses);
+        // RULE: Return function responses in a new 'user' role turn
+        contents.push({
+          role: 'user',
+          parts: functionResponseParts
+        });
       } else {
         // No more tool calls, we have the final answer
-        finalContent = choice.parts.map(p => p.text).join(' ');
+        // Extract text while ignoring internal thinking parts for the final UI response
+        finalContent = candidate.parts
+          .filter(p => p.text && !p.thought)
+          .map(p => p.text)
+          .join('\n');
         break;
       }
     }
 
     return NextResponse.json({ 
-      content: finalContent || "I'm sorry, I couldn't process that request."
+      content: finalContent || "I've analyzed the data but couldn't formulate a response. Please try rephrasing."
     });
 
   } catch (error) {
-    console.error('Chat API Error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('LeadSchool Chat Engine Error:', error);
+    return NextResponse.json({ 
+      error: `Engine Error: ${error.message}`,
+      details: error.status === 'INVALID_ARGUMENT' ? "Structural schema mismatch - check parts structure." : null
+    }, { status: 500 });
   }
 }
