@@ -23,6 +23,8 @@ export default async function AnalyticsPage({ searchParams }) {
         subtotal, 
         name,
         budget_line_items (
+          name, 
+          line_total,
           budget_norms ( role_id, total_cost )
         )
       ),
