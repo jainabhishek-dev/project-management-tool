@@ -92,39 +92,78 @@ const toolDefinitions = [
   }
 ];
 
+// Define the response schema for Structured Output
+const responseSchema = {
+  type: Type.OBJECT,
+  properties: {
+    summary: {
+      type: Type.STRING,
+      description: "A clear, professional summary of the requested financial analysis. No HTML tags."
+    },
+    keyMetrics: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          label: { type: Type.STRING, description: "Display label for the metric (e.g., 'Total Approved')" },
+          value: { type: Type.STRING, description: "The financial value with ₹ prefix and Indian numbering (e.g., '₹17.81 Lakhs')" }
+        }
+      },
+      description: "Short list of the most important numbers related to the query."
+    },
+    table: {
+      type: Type.OBJECT,
+      properties: {
+        headers: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Column names for the data table." },
+        rows: { 
+          type: Type.ARRAY, 
+          items: { 
+            type: Type.ARRAY, 
+            items: { type: Type.STRING },
+            description: "An array of rows, where each row is an array of cell values."
+          } 
+        }
+      },
+      description: "Detailed tabular data if requested (e.g., list of projects or budget breakdown)."
+    },
+    insights: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+      description: "A list of bulleted insights or observations about the data."
+    }
+  },
+  required: ["summary", "keyMetrics"]
+};
+
 export async function POST(req) {
   try {
     const { messages } = await req.json();
     
-    // Model Selection: Gemini 3.1 Pro Preview as per docs
+    // Model Selection: Gemini 3.1 Pro Preview
     const modelId = 'gemini-3.1-pro-preview';
 
-    // Step 1: Initialize conversation history with strict Parts structure
-    // This avoids the "required oneof field 'data'" error
+    // Step 1: Initialize conversation history
     let contents = messages.map(m => ({
       role: m.role === 'user' ? 'user' : 'model',
       parts: [{ text: m.content }]
     }));
 
-    let finalContent = '';
     let loopCount = 0;
     const MAX_LOOPS = 5;
 
-    // Step 2: Generation config with thinking enabled for better reasoning
+    // Step 2: Generation config with Thinking AND Structured Output
     const config = {
       tools: toolDefinitions,
       thinkingConfig: { includeThoughts: true },
+      responseMimeType: "application/json",
+      responseJsonSchema: responseSchema,
       systemInstruction: `You are an expert LeadSchool Finance Analyst. 
       
 RULES:
-1. DATA SOURCE: Use the provided tools to fetch REAL data from the Supabase database.
-2. CURRENCY: The underlying database stores all financial values strictly in Indian Rupees (₹). Always prefix amounts with '₹' and use the Indian numbering system (Lakhs/Crores) for readability (e.g., ₹1,00,000 instead of ₹100,000).
-3. FORMATTING: Strictly use Markdown ONLY. 
-   - Use **text** for bold.
-   - Use - for bullet points.
-   - Use | for tables.
-   - NEVER output HTML tags (no <strong>, <table>, <p>, etc.) as they break the UI parser.
-4. ANALYST PERSONA: Be professional, concise, and provide actionable insights. If you notice a high budget or cost outlier, mention it.`
+1. DATA: Fetch REAL data from Supabase using your tools.
+2. CURRENCY: All database values are strictly in Indian Rupees (₹). Always use ₹ prefix and Indian numbering (Lakhs/Crores).
+3. OUTPUT: You MUST return a JSON object matching the provided schema. 
+4. NO HTML: Never use <strong>, <table>, or other tags. The UI handles formatting based on your structured JSON data.`
     };
 
     while (loopCount < MAX_LOOPS) {
@@ -177,19 +216,16 @@ RULES:
           parts: functionResponseParts
         });
       } else {
-        // No more tool calls, we have the final answer
-        // Extract text while ignoring internal thinking parts for the final UI response
-        finalContent = candidate.parts
-          .filter(p => p.text && !p.thought)
-          .map(p => p.text)
-          .join('\n');
-        break;
+        // Final response is now a structured JSON string
+        return NextResponse.json({ 
+          content: candidate.parts[0].text
+        });
       }
     }
 
     return NextResponse.json({ 
-      content: finalContent || "I've analyzed the data but couldn't formulate a response. Please try rephrasing."
-    });
+      error: "Max analysis steps reached. Please try a more specific question."
+    }, { status: 429 });
 
   } catch (error) {
     console.error('LeadSchool Chat Engine Error:', error);

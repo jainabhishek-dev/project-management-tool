@@ -44,7 +44,7 @@ export default function ChatPage() {
       });
 
       const data = await response.json();
-      
+
       if (data.error) throw new Error(data.error);
 
       setMessages(prev => [...prev, { role: 'ai', content: data.content }]);
@@ -56,92 +56,76 @@ export default function ChatPage() {
   }
 
   // Simple Markdown-to-HTML helper for basic formatting (Tables, Bold, Bullets)
-  function formatContent(content) {
-    if (!content) return '';
+  function formatContent(dataString) {
+    if (!dataString) return '';
     
-    // Safety check: strip any literal HTML tags the AI might hallucinate
-    let sanitized = content.replace(/<\/?[^>]+(>|$)/g, "");
-    
-    // Convert bold
-    let text = sanitized.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    
-    const lines = text.split('\n');
-    const elements = [];
-    let inTable = false;
-    let tableRows = [];
+    let data;
+    try {
+      // The AI returns a JSON string, try to parse it
+      data = JSON.parse(dataString);
+    } catch (e) {
+      // Fallback for simple strings
+      return <p className="mb-2">{dataString}</p>;
+    }
 
-    const renderTable = (rows, key) => {
-      if (rows.length < 2) return null;
-      return (
-        <div className="overflow-x-auto my-4" key={key}>
-          <table className={styles.chatTable}>
-            <thead>
-              <tr>{rows[0].map((c, i) => <th key={i}>{c}</th>)}</tr>
-            </thead>
-            <tbody>
-              {rows.slice(2).filter(r => r.length === rows[0].length).map((row, i) => (
-                <tr key={i}>{row.map((c, j) => <td key={j}>{c}</td>)}</tr>
+    return (
+      <div className="space-y-4">
+        {/* Summary Paragraph */}
+        {data.summary && (
+          <p className="text-lg leading-relaxed text-gray-200">{data.summary}</p>
+        )}
+
+        {/* Key Metrics Grid */}
+        {data.keyMetrics && data.keyMetrics.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 my-4">
+            {data.keyMetrics.map((m, i) => (
+              <div key={i} className="bg-white/5 border border-white/10 rounded-lg p-3">
+                <div className="text-xs text-secondary uppercase tracking-wider">{m.label}</div>
+                <div className="text-xl font-bold text-accent">{m.value}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Data Table */}
+        {data.table && data.table.headers && (
+          <div className="overflow-x-auto my-4 rounded-lg border border-white/10">
+            <table className={styles.chatTable}>
+              <thead>
+                <tr>{data.table.headers.map((h, i) => <th key={i}>{h}</th>)}</tr>
+              </thead>
+              <tbody>
+                {data.table.rows && data.table.rows.map((row, i) => (
+                  <tr key={i}>{row.map((cell, j) => <td key={j}>{cell}</td>)}</tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Insights Bullets */}
+        {data.insights && data.insights.length > 0 && (
+          <div className="bg-accent/5 border-l-4 border-accent p-4 rounded-r-lg">
+            <div className="text-sm font-bold text-accent mb-2">Lead PM Insights</div>
+            <ul className="space-y-2">
+              {data.insights.map((insight, i) => (
+                <li key={i} className="flex items-start gap-2 text-sm text-gray-300">
+                  <span className="text-accent mt-1">•</span>
+                  {insight}
+                </li>
               ))}
-            </tbody>
-          </table>
-        </div>
-      );
-    };
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      
-      // Table detection
-      if (line.startsWith('|') && line.endsWith('|')) {
-        inTable = true;
-        const cells = line.split('|').filter((_, idx, arr) => idx > 0 && idx < arr.length - 1).map(c => c.trim());
-        tableRows.push(cells);
-        continue;
-      } 
-      
-      // If we were in a table but this line isn't part of it
-      if (inTable && tableRows.length > 0) {
-        elements.push(renderTable(tableRows, `table-${i}`));
-        tableRows = [];
-        inTable = false;
-      }
-
-      // Skip table separators (---|---|---)
-      if (line.includes('---') && line.includes('|')) continue;
-
-      // Bullets (support -, *, and •)
-      if (line.startsWith('- ') || line.startsWith('* ') || line.startsWith('• ')) {
-        elements.push(<li key={i} className="ml-6 mb-1 list-disc">{line.substring(2)}</li>);
-        continue;
-      }
-
-      // Numbered Lists
-      if (/^\d+\.\s/.test(line)) {
-        elements.push(<li key={i} className="ml-6 mb-1 list-decimal">{line.replace(/^\d+\.\s/, '')}</li>);
-        continue;
-      }
-
-      // Regular paragraphs
-      if (line === '') {
-        elements.push(<div key={i} className="h-2" />);
-      } else {
-        elements.push(<p key={i} className="mb-2" dangerouslySetInnerHTML={{ __html: line }} />);
-      }
-    }
-
-    // FINAL CHECK: If the AI ended with a table, render it now
-    if (inTable && tableRows.length > 0) {
-      elements.push(renderTable(tableRows, 'table-final'));
-    }
-
-    return elements;
+            </ul>
+          </div>
+        )}
+      </div>
+    );
   }
 
   return (
     <div>
-      <Header 
-        title="AI Assistant" 
-        subtitle="Conversational financial analysis powered by Gemini 3.1 Pro."
+      <Header
+        title="LEAD PM AI Assistant"
+        subtitle="Conversational financial analysis powered by AI."
         actions={<Sparkles className="text-accent" />}
       />
 
@@ -183,19 +167,19 @@ export default function ChatPage() {
           </div>
         )}
 
-        <form 
+        <form
           className={styles.inputArea}
           onSubmit={(e) => { e.preventDefault(); handleSend(); }}
         >
-          <input 
+          <input
             className="form-input"
             placeholder="Type your question about projects or budgets..."
             value={input}
             onChange={(e) => setInput(e.target.value)}
             disabled={loading}
           />
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             className="btn btn-primary"
             disabled={loading || !input.trim()}
           >
