@@ -59,49 +59,82 @@ export default function ChatPage() {
   function formatContent(content) {
     if (!content) return '';
     
-    // Convert bold
-    let html = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    // Safety check: strip any literal HTML tags the AI might hallucinate
+    let sanitized = content.replace(/<\/?[^>]+(>|$)/g, "");
     
-    // Split into paragraphs/lines
-    const lines = html.split('\n');
+    // Convert bold
+    let text = sanitized.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    
+    const lines = text.split('\n');
+    const elements = [];
     let inTable = false;
     let tableRows = [];
 
-    const result = lines.map((line, idx) => {
-      // Very specific check for markdown table rows
-      if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
-        inTable = true;
-        const cells = line.split('|').filter(c => c.trim() !== '').map(c => c.trim());
-        tableRows.push(cells);
-        return null;
-      } else if (inTable) {
-        // We were in a table, but now we're not. Render the collected rows.
-        inTable = false;
-        const rows = [...tableRows];
-        tableRows = [];
-        return (
-          <table key={`table-${idx}`}>
+    const renderTable = (rows, key) => {
+      if (rows.length < 2) return null;
+      return (
+        <div className="overflow-x-auto my-4" key={key}>
+          <table className={styles.chatTable}>
             <thead>
               <tr>{rows[0].map((c, i) => <th key={i}>{c}</th>)}</tr>
             </thead>
             <tbody>
-              {rows.slice(2).map((row, i) => (
+              {rows.slice(2).filter(r => r.length === rows[0].length).map((row, i) => (
                 <tr key={i}>{row.map((c, j) => <td key={j}>{c}</td>)}</tr>
               ))}
             </tbody>
           </table>
-        );
-      }
+        </div>
+      );
+    };
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
       
-      // Bullets
-      if (line.trim().startsWith('- ')) {
-        return <li key={idx} style={{ marginLeft: '20px' }}>{line.replace('- ', '')}</li>;
+      // Table detection
+      if (line.startsWith('|') && line.endsWith('|')) {
+        inTable = true;
+        const cells = line.split('|').filter((_, idx, arr) => idx > 0 && idx < arr.length - 1).map(c => c.trim());
+        tableRows.push(cells);
+        continue;
+      } 
+      
+      // If we were in a table but this line isn't part of it
+      if (inTable && tableRows.length > 0) {
+        elements.push(renderTable(tableRows, `table-${i}`));
+        tableRows = [];
+        inTable = false;
       }
 
-      return line.trim() === '' ? <br key={idx} /> : <p key={idx} style={{ marginBottom: '8px' }}>{line}</p>;
-    });
+      // Skip table separators (---|---|---)
+      if (line.includes('---') && line.includes('|')) continue;
 
-    return result;
+      // Bullets (support -, *, and •)
+      if (line.startsWith('- ') || line.startsWith('* ') || line.startsWith('• ')) {
+        elements.push(<li key={i} className="ml-6 mb-1 list-disc">{line.substring(2)}</li>);
+        continue;
+      }
+
+      // Numbered Lists
+      if (/^\d+\.\s/.test(line)) {
+        elements.push(<li key={i} className="ml-6 mb-1 list-decimal">{line.replace(/^\d+\.\s/, '')}</li>);
+        continue;
+      }
+
+      // Regular paragraphs
+      if (line === '') {
+        elements.push(<div key={i} className="h-2" />);
+      } else {
+        elements.push(<p key={i} className="mb-2" dangerouslySetInnerHTML={{ __html: line }} />);
+      }
+    }
+
+    // FINAL CHECK: If the AI ended with a table, render it now
+    if (inTable && tableRows.length > 0) {
+      elements.push(renderTable(tableRows, 'table-final'));
+    }
+
+    return elements;
   }
 
   return (
