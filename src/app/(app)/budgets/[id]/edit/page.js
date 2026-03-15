@@ -5,6 +5,7 @@ import { useRouter, useParams } from 'next/navigation';
 import { Plus, Trash2, ChevronRight, ChevronLeft } from 'lucide-react';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { calculateNorm, calculateLineTotal, formatCurrency } from '@/lib/utils/budget-calculations';
+import { isAdmin } from '@/lib/utils/admin';
 import Header from '@/components/layout/Header';
 import styles from '../../new/new-budget.module.css';
 
@@ -90,6 +91,19 @@ export default function EditBudgetPage() {
         .single();
 
       if (budget) {
+        const { data: { user } } = await supabase.auth.getUser();
+        const isUserAdmin = isAdmin(user?.email);
+        const isOwner = budget.created_by === user?.id;
+
+        const canEdit = 
+          (isOwner && budget.status === 'draft') || 
+          (isUserAdmin && (budget.status === 'draft' || budget.status === 'submitted'));
+
+        if (!canEdit) {
+          router.push(`/budgets/${editId}`);
+          return;
+        }
+
         setInfo({
           project_id: budget.project_id || '',
           name: budget.name || '',

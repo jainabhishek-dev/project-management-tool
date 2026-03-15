@@ -52,6 +52,13 @@ export default async function BudgetDetailPage({ params }) {
 
   const isUserAdmin = isAdmin(user?.email);
 
+  // Edit logic
+  // Owners can edit in Draft
+  // Admins can edit in Draft and Submitted
+  const canEdit = 
+    (isOwner && budget.status === 'draft') || 
+    (isUserAdmin && (budget.status === 'draft' || budget.status === 'submitted'));
+
   return (
     <div>
       <Header
@@ -60,7 +67,7 @@ export default async function BudgetDetailPage({ params }) {
         actions={
           <div style={{ display: 'flex', gap: '8px' }}>
             <DeleteButton type="budget" id={budget.id} isAdmin={isUserAdmin} onSuccessRedirect={`/projects/${budget.project_id}`} />
-            {isOwner && (
+            {canEdit && (
               <Link href={`/budgets/${id}/edit`} className="btn btn-secondary">
                 Edit Budget
               </Link>
@@ -80,7 +87,12 @@ export default async function BudgetDetailPage({ params }) {
         <div className="stat-card">
           <p className="stat-label">Status</p>
           <div className="stat-value" style={{ fontSize: '1rem', marginTop: 6, display: 'flex' }}>
-            <BudgetStatusManager budgetId={budget.id} initialStatus={budget.status} isOwner={isOwner} />
+            <BudgetStatusManager 
+              budgetId={budget.id} 
+              initialStatus={budget.status} 
+              isOwner={isOwner} 
+              isAdmin={isUserAdmin} 
+            />
           </div>
         </div>
         <div className="stat-card">
