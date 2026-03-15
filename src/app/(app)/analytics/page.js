@@ -1,6 +1,8 @@
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { formatCurrency } from '@/lib/utils/budget-calculations';
 import Header from '@/components/layout/Header';
+import SectionBreakdown from '@/components/charts/SectionBreakdown';
+import RoleBreakdown from '@/components/charts/RoleBreakdown';
 import styles from './analytics.module.css';
 
 export default async function AnalyticsPage() {
@@ -12,7 +14,11 @@ export default async function AnalyticsPage() {
       id, name, status, total_estimated_budget, currency, created_at,
       projects ( project_name ),
       profiles:created_by ( full_name, email ),
-      budget_sections ( subtotal, name )
+      budget_sections ( subtotal, name ),
+      budget_roles ( id, name ),
+      budget_line_items (
+        budget_norms ( role_id, total_cost )
+      )
     `)
     .order('total_estimated_budget', { ascending: false });
 
@@ -72,6 +78,18 @@ export default async function AnalyticsPage() {
               </div>
             ))}
           </div>
+        </div>
+      </div>
+
+      {/* Visual Analytics */}
+      <div className={styles.chartsContainer}>
+        <div className={styles.chartCard}>
+          <h3 className={styles.chartTitle}>Budget by Section</h3>
+          <SectionBreakdown budgets={budgets} />
+        </div>
+        <div className={styles.chartCard}>
+          <h3 className={styles.chartTitle}>Budget by Role</h3>
+          <RoleBreakdown budgets={budgets} />
         </div>
       </div>
 

@@ -1,3 +1,18 @@
+.statsSection {
+  margin-bottom: var(--space-8);
+}
+
+.statsHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.statsIcon {
+  color: var(--color-primary);
+}
+
 .quickActions {
   margin-top: var(--space-4);
 }
