@@ -8,6 +8,7 @@ import {
   DollarSign,
   BarChart3,
   AlertTriangle,
+  Sparkles,
   LogOut,
 } from 'lucide-react';
 import styles from './Sidebar.module.css';
@@ -19,6 +20,7 @@ const NAV_ITEMS = [
   { href: '/projects', label: 'Projects', icon: FolderOpen },
   { href: '/budgets', label: 'Budgets', icon: DollarSign },
   { href: '/analytics', label: 'Analytics', icon: BarChart3 },
+  { href: '/chat', label: 'Ask AI', icon: Sparkles },
   { href: '/risks', label: 'Risk Management', icon: AlertTriangle, comingSoon: true },
 ];
 
