@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import styles from './login.module.css';
 
@@ -12,7 +13,21 @@ export default function LoginPage() {
   const [sent, setSent] = useState(false);
   const [error, setError] = useState('');
 
+  const router = useRouter();
   const supabase = getSupabaseBrowserClient();
+
+  // If a magic link redirects here and establishes a session in the browser,
+  // or if the user is already logged in, instantly redirect them to the dashboard.
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session) {
+        router.push('/');
+        router.refresh();
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [supabase, router]);
 
   function validateEmail(email) {
     if (!email || !email.includes('@')) return 'Please enter a valid email address.';
