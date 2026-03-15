@@ -2,6 +2,7 @@ import { getSupabaseServerClient } from '@/lib/supabase/server';
 import Link from 'next/link';
 import { Plus, FolderOpen } from 'lucide-react';
 import Header from '@/components/layout/Header';
+import { isAdmin } from '@/lib/utils/admin';
 import styles from './projects.module.css';
 
 export default async function ProjectsPage() {
@@ -23,6 +24,8 @@ export default async function ProjectsPage() {
     `)
     .order('created_at', { ascending: false });
 
+  const isUserAdmin = isAdmin(user?.email);
+
   const statusColors = {
     active: 'badge-submitted',
     completed: 'badge-approved',
@@ -36,10 +39,17 @@ export default async function ProjectsPage() {
         title="Projects"
         subtitle="All projects across your organisation."
         actions={
-          <Link href="/projects/new" className="btn btn-primary">
-            <Plus size={16} />
-            New Project
-          </Link>
+          isUserAdmin ? (
+            <Link href="/projects/new" className="btn btn-primary">
+              <Plus size={16} />
+              New Project
+            </Link>
+          ) : (
+            <button className="btn btn-primary" style={{ opacity: 0.5, cursor: 'not-allowed' }} title="Reach out to admins to add a new project to the list" disabled>
+              <Plus size={16} />
+              New Project
+            </button>
+          )
         }
       />
 
@@ -48,11 +58,16 @@ export default async function ProjectsPage() {
           <FolderOpen size={48} className="empty-state-icon" />
           <h3 className="empty-state-title">No projects yet</h3>
           <p className="empty-state-text">
-            Create your first project to start tracking budgets and timelines.
+            {isUserAdmin 
+              ? "Create your first project to start tracking budgets and timelines."
+              : "Reach out to admins to add a new project to the list."
+            }
           </p>
-          <Link href="/projects/new" className="btn btn-primary">
-            <Plus size={16} /> Create Project
-          </Link>
+          {isUserAdmin && (
+            <Link href="/projects/new" className="btn btn-primary">
+              <Plus size={16} /> Create Project
+            </Link>
+          )}
         </div>
       ) : (
         <div className={styles.projectsGrid}>

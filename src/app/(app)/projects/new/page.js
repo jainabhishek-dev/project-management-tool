@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { isAdmin } from '@/lib/utils/admin';
 import Header from '@/components/layout/Header';
 import styles from './new-project.module.css';
 
@@ -35,6 +36,12 @@ export default function NewProjectPage() {
 
     setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
+
+    if (!isAdmin(user?.email)) {
+      setError('You are not authorized to create projects. Please reach out to admins.');
+      setLoading(false);
+      return;
+    }
 
     const { data, error: dbError } = await supabase
       .from('projects')

@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { formatCurrency, formatNumber } from '@/lib/utils/budget-calculations';
 import Header from '@/components/layout/Header';
 import BudgetStatusManager from '@/components/BudgetStatusManager';
+import { isAdmin } from '@/lib/utils/admin';
+import DeleteButton from '@/components/ui/DeleteButton';
 import styles from './budget-detail.module.css';
 
 export default async function BudgetDetailPage({ params }) {
@@ -48,17 +50,22 @@ export default async function BudgetDetailPage({ params }) {
     day: '2-digit', month: 'long', year: 'numeric',
   });
 
+  const isUserAdmin = isAdmin(user?.email);
+
   return (
     <div>
       <Header
         title={budget.name}
         subtitle={`${budget.projects?.project_name || ''} · Created by ${ownerName} on ${createdDate}`}
         actions={
-          isOwner && (
-            <Link href={`/budgets/${id}/edit`} className="btn btn-secondary">
-              Edit Budget
-            </Link>
-          )
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <DeleteButton type="budget" id={budget.id} isAdmin={isUserAdmin} onSuccessRedirect={`/projects/${budget.project_id}`} />
+            {isOwner && (
+              <Link href={`/budgets/${id}/edit`} className="btn btn-secondary">
+                Edit Budget
+              </Link>
+            )}
+          </div>
         }
       />
 

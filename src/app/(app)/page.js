@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { formatCurrency } from '@/lib/utils/budget-calculations';
 import { Plus, FolderOpen, DollarSign, TrendingUp, User, Globe } from 'lucide-react';
 import Header from '@/components/layout/Header';
+import { isAdmin } from '@/lib/utils/admin';
 import styles from './dashboard.module.css';
 
 export default async function DashboardPage() {
@@ -39,6 +40,8 @@ export default async function DashboardPage() {
 
   const firstName = profile?.full_name?.split(' ')[0] ||
     user?.email?.split('@')[0] || 'there';
+
+  const isUserAdmin = isAdmin(user?.email);
 
   return (
     <div>
@@ -104,15 +107,27 @@ export default async function DashboardPage() {
       <div className={styles.quickActions}>
         <h2 className={styles.sectionTitle}>Quick Actions</h2>
         <div className={styles.actionGrid}>
-          <Link href="/projects/new" className={styles.actionCard}>
-            <div className={styles.actionIcon} style={{ background: 'rgba(99,102,241,0.15)', color: '#6366f1' }}>
-              <FolderOpen size={24} />
+          {isUserAdmin ? (
+            <Link href="/projects/new" className={styles.actionCard}>
+              <div className={styles.actionIcon} style={{ background: 'rgba(99,102,241,0.15)', color: '#6366f1' }}>
+                <FolderOpen size={24} />
+              </div>
+              <div>
+                <h3 className={styles.actionTitle}>New Project</h3>
+                <p className={styles.actionDesc}>Create a new project to track work</p>
+              </div>
+            </Link>
+          ) : (
+            <div className={styles.actionCard} style={{ opacity: 0.7, cursor: 'not-allowed' }} title="Reach out to admins to add a new project">
+              <div className={styles.actionIcon} style={{ background: 'rgba(99,102,241,0.15)', color: '#6366f1' }}>
+                <FolderOpen size={24} />
+              </div>
+              <div>
+                <h3 className={styles.actionTitle}>New Project</h3>
+                <p className={styles.actionDesc}>Reach out to admins to add a new project.</p>
+              </div>
             </div>
-            <div>
-              <h3 className={styles.actionTitle}>New Project</h3>
-              <p className={styles.actionDesc}>Create a new project to track work</p>
-            </div>
-          </Link>
+          )}
           <Link href="/budgets/new" className={styles.actionCard}>
             <div className={styles.actionIcon} style={{ background: 'rgba(34,197,94,0.15)', color: '#22c55e' }}>
               <DollarSign size={24} />

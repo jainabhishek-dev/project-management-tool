@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import { formatCurrency } from '@/lib/utils/budget-calculations';
+import { isAdmin } from '@/lib/utils/admin';
+import DeleteButton from '@/components/ui/DeleteButton';
 import styles from './project-detail.module.css';
 
 export default async function ProjectDetailPage({ params }) {
@@ -43,15 +45,20 @@ export default async function ProjectDetailPage({ params }) {
   const ownerName = project.profiles?.full_name ||
     project.profiles?.email?.split('@')[0] || 'Unknown';
 
+  const isUserAdmin = isAdmin(user?.email);
+
   return (
     <div>
       <Header
         title={project.project_name}
         subtitle={`${project.academic_year ? project.academic_year + ' · ' : ''}${project.status.replace('_', ' ')} · Owned by ${ownerName}`}
         actions={
-          <Link href={`/budgets/new?project_id=${project.id}`} className="btn btn-primary">
-            <Plus size={16} /> New Budget
-          </Link>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <DeleteButton type="project" id={project.id} isAdmin={isUserAdmin} onSuccessRedirect="/projects" />
+            <Link href={`/budgets/new?project_id=${project.id}`} className="btn btn-primary">
+              <Plus size={16} /> New Budget
+            </Link>
+          </div>
         }
       />
 
@@ -100,6 +107,7 @@ export default async function ProjectDetailPage({ params }) {
                 <th>Owner</th>
                 <th className="number-cell">Total</th>
                 <th>Created</th>
+                <th style={{ textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -128,6 +136,9 @@ export default async function ProjectDetailPage({ params }) {
                     {new Date(b.created_at).toLocaleDateString('en-IN', {
                       day: '2-digit', month: 'short', year: 'numeric',
                     })}
+                  </td>
+                  <td style={{ textAlign: 'right' }}>
+                    <DeleteButton type="budget" id={b.id} isAdmin={isUserAdmin} onSuccessRefresh />
                   </td>
                 </tr>
               ))}
