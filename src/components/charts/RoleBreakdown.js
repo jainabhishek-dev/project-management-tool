@@ -92,8 +92,9 @@ export default function RoleBreakdown({ budgets }) {
               backgroundColor: 'var(--color-bg-card)', 
               borderColor: 'var(--color-border)',
               borderRadius: 'var(--radius-md)',
-              color: 'var(--color-text-primary)'
             }}
+            labelStyle={{ color: 'var(--color-text-primary)', fontWeight: 'bold' }}
+            itemStyle={{ color: '#ffffff' }}
           />
           <Bar 
             dataKey="value" 
