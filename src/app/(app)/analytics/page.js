@@ -1,9 +1,9 @@
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { formatCurrency } from '@/lib/utils/budget-calculations';
 import Header from '@/components/layout/Header';
-import SectionBreakdown from '@/components/charts/SectionBreakdown';
 import ProjectBreakdown from '@/components/charts/ProjectBreakdown';
 import RoleBreakdown from '@/components/charts/RoleBreakdown';
+import TopCostlyTasks from '@/components/analytics/TopCostlyTasks';
 import YearFilter from '@/components/ui/YearFilter';
 import styles from './analytics.module.css';
 
@@ -102,10 +102,6 @@ export default async function AnalyticsPage({ searchParams }) {
       {/* Visual Analytics */}
       <div className={styles.chartsContainer}>
         <div className={styles.chartCard}>
-          <h3 className={styles.chartTitle}>Budget by Section</h3>
-          <SectionBreakdown budgets={filteredBudgets} />
-        </div>
-        <div className={styles.chartCard}>
           <h3 className={styles.chartTitle}>Budget by Project</h3>
           <ProjectBreakdown budgets={filteredBudgets} />
         </div>
@@ -114,6 +110,9 @@ export default async function AnalyticsPage({ searchParams }) {
           <RoleBreakdown budgets={filteredBudgets} />
         </div>
       </div>
+
+      {/* Deep Dive Section */}
+      <TopCostlyTasks budgets={filteredBudgets} />
 
       {/* Budget value table */}
       <div className={styles.section}>
