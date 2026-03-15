@@ -77,11 +77,11 @@ export default function ChatPage() {
 
         {/* Key Metrics Grid */}
         {data.keyMetrics && data.keyMetrics.length > 0 && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 my-4">
+          <div className="flex flex-wrap gap-3 my-4">
             {data.keyMetrics.map((m, i) => (
-              <div key={i} className="bg-white/5 border border-white/10 rounded-lg p-3">
-                <div className="text-xs text-secondary uppercase tracking-wider">{m.label}</div>
-                <div className="text-xl font-bold text-accent">{m.value}</div>
+              <div key={i} className="bg-white/5 border border-white/10 rounded-full px-4 py-1.5 flex items-center gap-2">
+                <span className="text-xs text-secondary uppercase tracking-wider">{m.label} =</span>
+                <span className="text-sm font-bold text-accent">{m.value}</span>
               </div>
             ))}
           </div>
@@ -106,12 +106,12 @@ export default function ChatPage() {
         {/* Insights Bullets */}
         {data.insights && data.insights.length > 0 && (
           <div className="bg-accent/5 border-l-4 border-accent p-4 rounded-r-lg">
-            <div className="text-sm font-bold text-accent mb-2">Lead PM Insights</div>
+            <div className="text-sm font-bold text-accent mb-2">Insights</div>
             <ul className="space-y-2">
               {data.insights.map((insight, i) => (
                 <li key={i} className="flex items-start gap-2 text-sm text-gray-300">
                   <span className="text-accent mt-1">•</span>
-                  {insight}
+                  {insight.replace(/^[•\-\*\s]+/, '')}
                 </li>
               ))}
             </ul>

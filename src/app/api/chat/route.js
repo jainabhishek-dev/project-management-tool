@@ -115,13 +115,13 @@ const responseSchema = {
       type: Type.OBJECT,
       properties: {
         headers: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Column names for the data table." },
-        rows: { 
-          type: Type.ARRAY, 
-          items: { 
-            type: Type.ARRAY, 
+        rows: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.ARRAY,
             items: { type: Type.STRING },
             description: "An array of rows, where each row is an array of cell values."
-          } 
+          }
         }
       },
       description: "Detailed tabular data if requested (e.g., list of projects or budget breakdown)."
@@ -138,7 +138,7 @@ const responseSchema = {
 export async function POST(req) {
   try {
     const { messages } = await req.json();
-    
+
     // Model Selection: Gemini 3.1 Pro Preview
     const modelId = 'gemini-3.1-pro-preview';
 
@@ -157,13 +157,15 @@ export async function POST(req) {
       thinkingConfig: { includeThoughts: true },
       responseMimeType: "application/json",
       responseJsonSchema: responseSchema,
-      systemInstruction: `You are an expert LeadSchool Finance Analyst. 
+      systemInstruction: `You are an expert LeadSchool Project Manager. 
       
 RULES:
 1. DATA: Fetch REAL data from Supabase using your tools.
 2. CURRENCY: All database values are strictly in Indian Rupees (₹). Always use ₹ prefix and Indian numbering (Lakhs/Crores).
 3. OUTPUT: You MUST return a JSON object matching the provided schema. 
-4. NO HTML: Never use <strong>, <table>, or other tags. The UI handles formatting based on your structured JSON data.`
+4. NO HTML: Never use <strong>, <table>, or other tags.
+5. CONCISENESS: Summaries must be direct. Avoid "The organization currently has..." or "Okay, let me...". Start directly with the data.
+6. INSIGHTS: Do not include bullet points (•, -, *) in the insights array strings. Just provide the text.`
     };
 
     while (loopCount < MAX_LOOPS) {
@@ -176,10 +178,10 @@ RULES:
       });
 
       const candidate = result.candidates[0].content;
-      
+
       // Check for function calls in the model's preferred response segment
       const functionCalls = result.functionCalls;
-      
+
       if (functionCalls && functionCalls.length > 0) {
         // RULE (from docs): Return the entire response part (including thoughtSignature) back to history
         contents.push(candidate);
@@ -218,20 +220,20 @@ RULES:
       } else {
         // Final response logic: Carefully find the JSON part, ignoring thinking/monologue parts
         const finalJsonPart = candidate.parts.find(p => p.text && !p.thought);
-        
-        return NextResponse.json({ 
+
+        return NextResponse.json({
           content: finalJsonPart ? finalJsonPart.text : "{ \"error\": \"No valid data returned\" }"
         });
       }
     }
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       error: "Max analysis steps reached. Please try a more specific question."
     }, { status: 429 });
 
   } catch (error) {
     console.error('LeadSchool Chat Engine Error:', error);
-    return NextResponse.json({ 
+    return NextResponse.json({
       error: `Engine Error: ${error.message}`,
       details: error.status === 'INVALID_ARGUMENT' ? "Structural schema mismatch - check parts structure." : null
     }, { status: 500 });
