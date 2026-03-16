@@ -80,7 +80,7 @@ export default function ChatPage() {
           <div className="flex flex-wrap gap-3 my-4">
             {data.keyMetrics.map((m, i) => (
               <div key={i} className="bg-white/5 border border-white/10 rounded-full px-4 py-1.5 flex items-center gap-2">
-                <span className="text-xs text-secondary uppercase tracking-wider">{m.label} =</span>
+                <span className="text-xs text-secondary uppercase tracking-wider">{m.label} = </span>
                 <span className="text-sm font-bold text-accent">{m.value}</span>
               </div>
             ))}
@@ -111,7 +111,7 @@ export default function ChatPage() {
               {data.insights.map((insight, i) => (
                 <li key={i} className="flex items-start gap-2 text-sm text-gray-300">
                   <span className="text-accent mt-1">•</span>
-                  {insight.replace(/^[•\-\*\s]+/, '')}
+                  {insight.replace(/^[^a-zA-Z0-9₹]+/, '')}
                 </li>
               ))}
             </ul>
