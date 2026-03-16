@@ -165,7 +165,7 @@ RULES:
 3. OUTPUT: You MUST return a JSON object matching the provided schema. 
 4. NO HTML: Never use <strong>, <table>, or other tags.
 5. CONCISENESS: Summaries must be direct. Avoid "The organization currently has..." or "Okay, let me...". Start directly with the data.
-6. INSIGHTS: Do not include bullet points (•, -, *) in the insights array strings. Just provide the text.`
+6. KEY_METRICS_FORMAT: Ensure each keyMetric object in the 'keyMetrics' array is a distinct item. Do not attempt to format them as a single string with bullet points or line breaks within the 'value' or 'label' fields. Each 'label' and 'value' should be a plain string.`
     };
 
     while (loopCount < MAX_LOOPS) {

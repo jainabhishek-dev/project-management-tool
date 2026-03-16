@@ -75,11 +75,11 @@ export default function ChatPage() {
           <p className="text-lg leading-relaxed text-gray-200">{data.summary}</p>
         )}
 
-        {/* Key Metrics Grid */}
+        {/* Key Metrics Grid - Stacked with spacing */}
         {data.keyMetrics && data.keyMetrics.length > 0 && (
-          <div className="flex flex-wrap gap-3 my-4">
+          <div className="flex flex-col gap-4 my-6">
             {data.keyMetrics.map((m, i) => (
-              <div key={i} className="bg-white/5 border border-white/10 rounded-full px-4 py-1.5 flex items-center gap-2">
+              <div key={i} className="bg-white/5 border border-white/10 rounded-full px-5 py-2 flex items-center gap-2 w-fit">
                 <span className="text-xs text-secondary uppercase tracking-wider">{m.label} = </span>
                 <span className="text-sm font-bold text-accent">{m.value}</span>
               </div>
@@ -107,11 +107,10 @@ export default function ChatPage() {
         {data.insights && data.insights.length > 0 && (
           <div className="bg-accent/5 border-l-4 border-accent p-4 rounded-r-lg">
             <div className="text-sm font-bold text-accent mb-2">Insights</div>
-            <ul className="space-y-2">
+            <ul className="space-y-2 list-none">
               {data.insights.map((insight, i) => (
-                <li key={i} className="flex items-start gap-2 text-sm text-gray-300">
-                  <span className="text-accent mt-1">•</span>
-                  {insight.replace(/^[^a-zA-Z0-9₹]+/, '')}
+                <li key={i} className="text-sm text-gray-300">
+                  {insight}
                 </li>
               ))}
             </ul>
