@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'; // always fetch fresh — no stale cache on first visit
+
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
 import { forecastExecutionTasks } from '@/lib/utils/planning-calculations';
@@ -7,20 +9,21 @@ export default async function PlanDetailPage({ params }) {
   const { id, planId } = await params;
   const supabase = await getSupabaseServerClient();
 
-  // Fetch all plan data in parallel
+  // Fetch all required data in parallel
   const [
     { data: plan },
     { data: existingTasks },
     { data: teamMembers },
     { data: holidays },
+    { data: booksRaw },
+    { data: deliverables },
   ] = await Promise.all([
     supabase
       .from('project_plans')
       .select(`
         *,
         project:project_id ( project_name ),
-        steps:planning_steps ( *, norms:planning_norms ( * ) ),
-        deliverables:planning_deliverables ( * )
+        steps:planning_steps ( *, norms:planning_norms ( * ) )
       `)
       .eq('id', planId)
       .single(),
@@ -40,52 +43,64 @@ export default async function PlanDetailPage({ params }) {
       .select('*')
       .eq('plan_id', planId)
       .order('holiday_date', { ascending: true }),
+
+    supabase
+      .from('plan_books')
+      .select('*')
+      .eq('plan_id', planId)
+      .order('display_order', { ascending: true }),
+
+    supabase
+      .from('planning_deliverables')
+      .select('*')
+      .eq('plan_id', planId)
+      .order('display_order', { ascending: true }),
   ]);
 
   if (!plan) notFound();
 
-  // Build availability map (Sets — used only server-side for task generation)
-  // global: plan-level holidays (block all roles)
-  // [role]: union of leave dates for all members with that role
+  // Group chapters under their books
+  const books = (booksRaw || []).map((book) => ({
+    ...book,
+    chapters: (deliverables || []).filter((d) => d.book_id === book.id),
+  }));
+
+  // Build per-plan holiday set (user-defined, no global table used)
   const holidaySet = new Set((holidays || []).map((h) => h.holiday_date));
-  const availabilityMap = { global: holidaySet };
 
-  // Build bandwidth map: [role] → sum of bandwidths for all members of that role
-  const bandwidthMap = {};
-  (teamMembers || []).forEach((member) => {
-    const role = member.role;
-    if (!availabilityMap[role]) availabilityMap[role] = new Set();
-    (member.leaves || []).forEach((l) => availabilityMap[role].add(l.leave_date));
-    bandwidthMap[role] = (bandwidthMap[role] || 0) + member.bandwidth;
-  });
-
-  // Generate tasks on first visit if none exist, then persist them to DB
+  // Generate tasks on first visit and persist them to DB
   let activeTasks = existingTasks || [];
 
-  if (activeTasks.length === 0 && (plan.deliverables || []).length > 0) {
-    const generatedTasks = forecastExecutionTasks(
-      plan,
-      plan.deliverables,
-      availabilityMap,
-      bandwidthMap
-    );
+  if (activeTasks.length === 0 && books.some((b) => b.chapters.length > 0)) {
+    try {
+      const generatedTasks = forecastExecutionTasks(
+        plan,
+        books,
+        teamMembers || [],
+        holidaySet
+      );
 
-    if (generatedTasks.length > 0) {
-      const { error: insertError } = await supabase
-        .from('planning_tasks')
-        .insert(generatedTasks.map((t) => ({ ...t, plan_id: planId })));
-
-      if (!insertError) {
-        // Re-fetch to get DB-generated IDs needed for edits
-        const { data: savedTasks } = await supabase
+      if (generatedTasks.length > 0) {
+        const { error: insertError } = await supabase
           .from('planning_tasks')
-          .select('*')
-          .eq('plan_id', planId);
-        activeTasks = savedTasks || generatedTasks;
-      } else {
-        // Fall back to in-memory tasks if insert fails
-        activeTasks = generatedTasks;
+          .insert(generatedTasks.map((t) => ({ ...t, plan_id: planId })));
+
+        if (!insertError) {
+          // Re-fetch to get DB-generated IDs (needed for edits)
+          const { data: savedTasks } = await supabase
+            .from('planning_tasks')
+            .select('*')
+            .eq('plan_id', planId);
+
+          activeTasks = savedTasks || generatedTasks;
+        } else {
+          console.error('[planId/page] Task insert failed:', insertError.message);
+          activeTasks = generatedTasks; // fall back to in-memory
+        }
       }
+    } catch (err) {
+      console.error('[planId/page] forecastExecutionTasks failed:', err.message);
+      // activeTasks stays [] — grid will show empty with a clear indication
     }
   }
 
@@ -93,7 +108,7 @@ export default async function PlanDetailPage({ params }) {
     <PlanDetailClient
       plan={plan}
       tasks={activeTasks}
-      deliverables={plan.deliverables || []}
+      books={books}
       teamMembers={teamMembers || []}
       holidays={holidays || []}
     />

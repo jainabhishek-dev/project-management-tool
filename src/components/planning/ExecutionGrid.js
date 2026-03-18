@@ -1,106 +1,195 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { format, parseISO } from 'date-fns';
-import { Calendar } from 'lucide-react';
+import { Calendar, BookOpen, AlertCircle } from 'lucide-react';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
-import { cascadeTaskDates } from '@/lib/utils/planning-calculations';
+import { cascadeAfterEdit } from '@/lib/utils/planning-calculations';
 import styles from './ExecutionGrid.module.css';
 
 const STATUS_OPTIONS = ['Yet to start', 'In Progress', 'Done', 'Skipped'];
 
 const STATUS_COLORS = {
-  'Done': 'var(--color-success)',
+  Done: 'var(--color-success)',
   'In Progress': 'var(--color-primary)',
-  'Skipped': 'var(--color-text-muted)',
+  Skipped: 'var(--color-text-muted)',
   'Yet to start': 'var(--color-text-secondary)',
 };
 
 export default function ExecutionGrid({
   plan,
   tasks,
-  deliverables,
+  books,
   teamMembers,
-  availabilityMap,
-  bandwidthMap,
+  memberLeavesMap,
+  holidaySet,
 }) {
   const [activeTasks, setActiveTasks] = useState(tasks);
   const supabase = getSupabaseBrowserClient();
 
-  const steps = [...(plan.steps || [])].sort((a, b) => a.display_order - b.display_order);
+  const isPrint = plan.type !== 'Digital';
+  const steps = useMemo(
+    () =>
+      [...(plan.steps || [])].sort((a, b) => a.display_order - b.display_order),
+    [plan.steps]
+  );
 
-  // Group tasks by deliverable for easy lookup
-  const groupedTasks = deliverables.map((del) => {
-    const delTasks = activeTasks.filter((t) => t.deliverable_id === del.id);
-    return {
-      ...del,
-      stepsTasks: steps.reduce((acc, step) => {
-        acc[step.id] = delTasks.find((t) => t.step_id === step.id) || null;
-        return acc;
-      }, {}),
-    };
-  });
+  // Sort books by display_order; chapters within each book by display_order
+  const sortedBooks = useMemo(
+    () =>
+      [...(books || [])].sort((a, b) => a.display_order - b.display_order).map(
+        (book) => ({
+          ...book,
+          chapters: [...(book.chapters || [])].sort(
+            (a, b) => a.display_order - b.display_order
+          ),
+        })
+      ),
+    [books]
+  );
 
-  // ── Status update ─────────────────────────────────────────────────────────
+  // Build quick-lookup maps
+  const memberById = useMemo(() => {
+    const map = {};
+    (teamMembers || []).forEach((m) => (map[m.id] = m));
+    return map;
+  }, [teamMembers]);
+
+  // Task lookup: chapter tasks by `${deliverable_id}-${step_id}`,
+  //             book tasks   by `${book_id}-${step_id}`
+  const taskMap = useMemo(() => {
+    const map = {};
+    activeTasks.forEach((t) => {
+      const key = t.deliverable_id
+        ? `${t.deliverable_id}-${t.step_id}`
+        : `${t.book_id}-${t.step_id}`;
+      map[key] = t;
+    });
+    return map;
+  }, [activeTasks]);
+
+  // ── Status update ───────────────────────────────────────────────────────
   async function handleStatusChange(taskId, newStatus) {
     setActiveTasks((prev) =>
       prev.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t))
     );
-    await supabase.from('planning_tasks').update({ status: newStatus }).eq('id', taskId);
+    await supabase
+      .from('planning_tasks')
+      .update({ status: newStatus })
+      .eq('id', taskId);
   }
 
-  // ── End-date change with cascade ─────────────────────────────────────────
-  async function handleEndDateChange(taskId, newEndDate, deliverableId, stepId) {
-    const deliverable = deliverables.find((d) => d.id === deliverableId);
-    if (!deliverable) return;
+  // ── End-date change — full re-schedule cascade ──────────────────────────
+  async function handleEndDateChange(taskId, newEndDate) {
+    if (!newEndDate) return;
 
-    const tasksForDeliverable = activeTasks.filter(
-      (t) => t.deliverable_id === deliverableId
+    const updatedTasks = cascadeAfterEdit(
+      plan,
+      sortedBooks,
+      activeTasks,
+      teamMembers || [],
+      holidaySet,
+      taskId,
+      newEndDate
     );
 
-    // Compute cascade using the shared utility
-    const updatedTasksForDel = cascadeTaskDates(
-      tasksForDeliverable,
-      stepId,
-      newEndDate,
-      steps,
-      deliverable.cluster_id,
-      availabilityMap,
-      bandwidthMap
-    );
+    setActiveTasks(updatedTasks);
 
-    // Merge cascade results back into full task list
-    const updatedMap = {};
-    updatedTasksForDel.forEach((t) => {
-      updatedMap[t.step_id] = t;
-    });
-
-    setActiveTasks((prev) =>
-      prev.map((t) => {
-        if (t.deliverable_id !== deliverableId) return t;
-        return updatedMap[t.step_id] ? { ...t, ...updatedMap[t.step_id] } : t;
-      })
-    );
-
-    // Persist all changed tasks to DB
-    for (const t of updatedTasksForDel) {
-      if (!t.id) continue; // skip if no DB id (shouldn't happen after first load)
-      const { planned_start_date, planned_end_date } = t;
-      // Only include end_date for the anchor task (user-changed), start+end for cascade
+    // Persist all tasks with changed dates
+    for (const t of updatedTasks) {
+      if (!t.id) continue;
       await supabase
         .from('planning_tasks')
-        .update({ planned_start_date, planned_end_date })
+        .update({
+          planned_start_date: t.planned_start_date,
+          planned_end_date: t.planned_end_date,
+          plan_team_member_id: t.plan_team_member_id,
+        })
         .eq('id', t.id);
     }
   }
 
+  // ── Render a single task cell ───────────────────────────────────────────
+  function renderTaskCell(task, step) {
+    if (!task) {
+      return (
+        <td key={step.id} className={styles.stepCell}>
+          <span className={styles.noTask}>—</span>
+        </td>
+      );
+    }
+
+    const assignedMember = task.plan_team_member_id
+      ? memberById[task.plan_team_member_id]
+      : null;
+    const isUnassigned = !assignedMember;
+
+    return (
+      <td key={step.id} className={styles.stepCell}>
+        <div
+          className={`${styles.taskCard} ${isUnassigned ? styles.taskUnassigned : ''}`}
+        >
+          {/* Member name */}
+          {assignedMember ? (
+            <span className={styles.taskMember}>
+              {assignedMember.name.split(' ')[0]}
+            </span>
+          ) : (
+            <span className={styles.taskMemberWarn}>
+              <AlertCircle size={10} /> Unassigned
+            </span>
+          )}
+
+          {/* Editable status */}
+          <select
+            className={styles.statusSelect}
+            value={task.status || 'Yet to start'}
+            style={{ color: STATUS_COLORS[task.status] || STATUS_COLORS['Yet to start'] }}
+            onChange={(e) => handleStatusChange(task.id, e.target.value)}
+            disabled={!task.id}
+          >
+            {STATUS_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+
+          {/* Start date (read-only) */}
+          <div className={styles.taskDates}>
+            <span className={styles.dateLabel}>Start:</span>
+            <span className={styles.dateValue}>
+              {task.planned_start_date
+                ? format(parseISO(task.planned_start_date), 'dd MMM')
+                : '—'}
+            </span>
+          </div>
+
+          {/* Editable end date */}
+          <div className={styles.taskDates}>
+            <span className={styles.dateLabel}>End:</span>
+            <input
+              type="date"
+              className={styles.dateInput}
+              value={task.planned_end_date || ''}
+              disabled={!task.id}
+              onChange={(e) => handleEndDateChange(task.id, e.target.value)}
+            />
+          </div>
+        </div>
+      </td>
+    );
+  }
+
   return (
     <div className={styles.container}>
-      {/* Timeline info bar */}
+      {/* Timeline bar */}
       <div className={styles.tableHead}>
         <div className={styles.projectInfo}>
           <Calendar size={18} />
-          <span>Timeline: {format(parseISO(plan.start_date), 'dd MMM yyyy')} onwards</span>
+          <span>
+            Timeline: {format(parseISO(plan.start_date), 'dd MMM yyyy')} onwards
+          </span>
         </div>
       </div>
 
@@ -108,38 +197,25 @@ export default function ExecutionGrid({
         <table className={styles.executionTable}>
           <thead>
             <tr className={styles.headerRow}>
-              {/* Deliverable info columns */}
-              <th className={styles.stickyCol}>Term</th>
-              <th className={styles.stickyCol}>Class</th>
-              <th className={styles.stickyCol}>Unit No</th>
-              <th className={styles.stickyCol} style={{ minWidth: 200 }}>Unit Name</th>
-              <th className={styles.stickyCol}>Cluster</th>
-              <th className={styles.stickyCol}>Pages</th>
+              {/* Fixed chapter columns */}
+              <th className={styles.stickyUnit}>Unit No</th>
+              <th className={styles.stickyName}>Unit Name</th>
+              <th className={styles.stickySmall}>Cluster</th>
+              {isPrint && <th className={styles.stickySmall}>Pages</th>}
 
               {/* Dynamic step columns */}
               {steps.map((step) => {
-                // Show assigned team members for this step's role
-                const assigned = (teamMembers || []).filter(
-                  (m) => m.role === step.role_required
-                );
+                const isBookStep = step.unit_of_calculation === 'Book';
                 return (
                   <th key={step.id} className={styles.stepCol}>
                     <div className={styles.stepHeader}>
+                      {isBookStep && (
+                        <span className={styles.bookStepBadge}>
+                          <BookOpen size={9} /> Book
+                        </span>
+                      )}
                       <p className={styles.stepRole}>{step.role_required}</p>
                       <p className={styles.stepName}>{step.name}</p>
-                      {assigned.length > 0 && (
-                        <div className={styles.stepMembers}>
-                          {assigned.map((m) => (
-                            <span
-                              key={m.id}
-                              className={styles.memberBadge}
-                              title={`${m.name} — ${m.bandwidth * 100}% bandwidth`}
-                            >
-                              {m.name.split(' ')[0]} ({m.bandwidth}x)
-                            </span>
-                          ))}
-                        </div>
-                      )}
                     </div>
                   </th>
                 );
@@ -148,79 +224,80 @@ export default function ExecutionGrid({
           </thead>
 
           <tbody>
-            {groupedTasks.map((del, idx) => (
-              <tr key={del.id} className={idx % 2 === 0 ? styles.evenRow : styles.oddRow}>
-                <td className={styles.stickyCol}>{del.term}</td>
-                <td className={styles.stickyCol}>{del.class_name}</td>
-                <td className={styles.stickyCol}>{del.unit_no}</td>
-                <td className={styles.stickyCol}>{del.unit_name}</td>
-                <td className={styles.stickyCol}>
-                  {/* Show human-readable cluster label from plan.cluster_labels */}
-                  <span className={styles.clusterLabel}>
-                    {plan.cluster_labels?.[del.cluster_id] || del.cluster_id}
-                  </span>
-                </td>
-                <td className={styles.stickyCol}>{del.pages}</td>
+            {sortedBooks.map((book) => {
+              const lastChapterIdx = book.chapters.length - 1;
+              return [
+                /* Book header row */
+                <tr key={`book-header-${book.id}`} className={styles.bookHeaderRow}>
+                  <td
+                    colSpan={
+                      (isPrint ? 4 : 3) + steps.length
+                    }
+                    className={styles.bookHeaderCell}
+                  >
+                    <BookOpen size={14} />
+                    <span>{book.name}</span>
+                  </td>
+                </tr>,
 
-                {/* Task cells per step */}
-                {steps.map((step) => {
-                  const task = del.stepsTasks[step.id];
-
-                  if (!task) {
-                    return (
-                      <td key={step.id} className={styles.stepCell}>
-                        <span className={styles.noTask}>—</span>
-                      </td>
-                    );
-                  }
+                /* Chapter rows */
+                ...book.chapters.map((chapter, chIdx) => {
+                  const isLastChapter = chIdx === lastChapterIdx;
+                  const rowClass = chIdx % 2 === 0 ? styles.evenRow : styles.oddRow;
 
                   return (
-                    <td key={step.id} className={styles.stepCell}>
-                      <div className={styles.taskCard}>
-                        {/* Editable status */}
-                        <select
-                          className={styles.statusSelect}
-                          value={task.status || 'Yet to start'}
-                          style={{ color: STATUS_COLORS[task.status] || STATUS_COLORS['Yet to start'] }}
-                          onChange={(e) => handleStatusChange(task.id, e.target.value)}
-                          disabled={!task.id}
-                        >
-                          {STATUS_OPTIONS.map((s) => (
-                            <option key={s} value={s}>{s}</option>
-                          ))}
-                        </select>
+                    <tr key={chapter.id} className={rowClass}>
+                      <td className={styles.stickyUnit}>{chapter.unit_no}</td>
+                      <td className={styles.stickyName}>{chapter.unit_name}</td>
+                      <td className={styles.stickySmall}>
+                        <span className={styles.clusterLabel}>
+                          {plan.cluster_labels?.[chapter.cluster_id] ||
+                            chapter.cluster_id}
+                        </span>
+                      </td>
+                      {isPrint && (
+                        <td className={styles.stickySmall}>{chapter.pages}</td>
+                      )}
 
-                        {/* Start date (read-only — determined by cascade) */}
-                        <div className={styles.taskDates}>
-                          <span className={styles.dateLabel}>Start:</span>
-                          <span className={styles.dateValue}>
-                            {task.planned_start_date
-                              ? format(parseISO(task.planned_start_date), 'dd MMM')
-                              : '—'}
-                          </span>
-                        </div>
+                      {steps.map((step) => {
+                        const isBookStep = step.unit_of_calculation === 'Book';
 
-                        {/* Editable end date */}
-                        <div className={styles.taskDates}>
-                          <span className={styles.dateLabel}>End:</span>
-                          <input
-                            type="date"
-                            className={styles.dateInput}
-                            value={task.planned_end_date || ''}
-                            disabled={!task.id}
-                            onChange={(e) =>
-                              handleEndDateChange(task.id, e.target.value, del.id, step.id)
-                            }
-                          />
-                        </div>
-                      </div>
-                    </td>
+                        if (isBookStep) {
+                          // Only last chapter row shows the book-level task
+                          if (!isLastChapter) {
+                            return (
+                              <td key={step.id} className={styles.stepCell}>
+                                <span className={styles.noTask}>—</span>
+                              </td>
+                            );
+                          }
+                          const task = taskMap[`${book.id}-${step.id}`] || null;
+                          return renderTaskCell(task, step);
+                        }
+
+                        // Chapter-level task
+                        const task = taskMap[`${chapter.id}-${step.id}`] || null;
+                        return renderTaskCell(task, step);
+                      })}
+                    </tr>
                   );
-                })}
-              </tr>
-            ))}
+                }),
+              ];
+            })}
           </tbody>
         </table>
+
+        {sortedBooks.length === 0 && (
+          <div
+            style={{
+              textAlign: 'center',
+              padding: 'var(--space-12)',
+              color: 'var(--color-text-muted)',
+            }}
+          >
+            No books or chapters found for this plan.
+          </div>
+        )}
       </div>
     </div>
   );

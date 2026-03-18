@@ -41,10 +41,30 @@
   justify-content: center;
 }
 
-.roleName {
+.memberName {
   font-size: var(--font-size-md);
   font-weight: 700;
   color: var(--color-text-primary);
+  line-height: 1.2;
+}
+
+.roleName {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-top: 1px;
+}
+
+.bwRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-2);
+}
+
+.memberBw {
+  color: var(--color-accent);
+  font-weight: 700;
+  font-size: var(--font-size-sm);
 }
 
 .statRow {

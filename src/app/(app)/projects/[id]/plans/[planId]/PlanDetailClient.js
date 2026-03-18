@@ -9,27 +9,21 @@ import { LayoutGrid, Users } from 'lucide-react';
 export default function PlanDetailClient({
   plan,
   tasks,
-  deliverables,
+  books,
   teamMembers,
   holidays,
 }) {
   const [activeTab, setActiveTab] = useState('grid');
 
-  // Build availability and bandwidth maps client-side from serializable props.
-  // These are used by ExecutionGrid for cascade recalculation on date edits.
-  const { availabilityMap, bandwidthMap } = useMemo(() => {
-    const holidaySet = new Set((holidays || []).map((h) => h.holiday_date));
-    const avMap = { global: holidaySet };
-    const bwMap = {};
-
-    (teamMembers || []).forEach((member) => {
-      const role = member.role;
-      if (!avMap[role]) avMap[role] = new Set();
-      (member.leaves || []).forEach((l) => avMap[role].add(l.leave_date));
-      bwMap[role] = (bwMap[role] || 0) + member.bandwidth;
+  // Build per-member leave sets and holiday set client-side.
+  // These are passed to ExecutionGrid so the cascade algorithm can use them.
+  const { memberLeavesMap, holidaySet } = useMemo(() => {
+    const holSet = new Set((holidays || []).map((h) => h.holiday_date));
+    const leavesMap = {};
+    (teamMembers || []).forEach((m) => {
+      leavesMap[m.id] = new Set((m.leaves || []).map((l) => l.leave_date));
     });
-
-    return { availabilityMap: avMap, bandwidthMap: bwMap };
+    return { memberLeavesMap: leavesMap, holidaySet: holSet };
   }, [teamMembers, holidays]);
 
   return (
@@ -63,21 +57,24 @@ export default function PlanDetailClient({
         }
       />
 
-      <div className="glass-card animate-fade-in" style={{ padding: 0, overflow: 'hidden' }}>
+      <div
+        className="glass-card animate-fade-in"
+        style={{ padding: 0, overflow: 'hidden' }}
+      >
         {activeTab === 'grid' ? (
           <ExecutionGrid
             plan={plan}
             tasks={tasks}
-            deliverables={deliverables}
+            books={books}
             teamMembers={teamMembers}
-            availabilityMap={availabilityMap}
-            bandwidthMap={bandwidthMap}
+            memberLeavesMap={memberLeavesMap}
+            holidaySet={holidaySet}
           />
         ) : (
           <BandwidthSummary
             plan={plan}
             tasks={tasks}
-            deliverables={deliverables}
+            books={books}
             teamMembers={teamMembers}
           />
         )}
