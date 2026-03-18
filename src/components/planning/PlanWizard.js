@@ -151,6 +151,118 @@ export default function PlanWizard({ projectId, userId, clusters }) {
     }
   };
 
+  const handlePastePlanSteps = (e, index, field) => {
+    if (!e.clipboardData) return;
+    const pasteData = e.clipboardData.getData('text/plain');
+    if (!pasteData) return;
+
+    const pastedRows = pasteData.split(/\r?\n/).filter((r) => r.length > 0).map((r) => r.split('\t'));
+    if (pastedRows.length <= 1 && pastedRows[0].length <= 1) return;
+
+    e.preventDefault();
+
+    const clusterIds = clusters.map(c => c.id);
+    const allCols = ['name', 'role', 'buffer', ...clusterIds];
+    const startColIndex = allCols.indexOf(field);
+
+    if (startColIndex === -1) return;
+
+    const newPlanSteps = [...planSteps];
+
+    for (let r = 0; r < pastedRows.length; r++) {
+      const targetIndex = index + r;
+
+      if (targetIndex >= newPlanSteps.length) {
+        newPlanSteps.push({
+          name: '',
+          role: '',
+          buffer: 0,
+          norms: clusters.reduce((acc, c) => ({ ...acc, [c.id]: 0 }), {})
+        });
+      }
+
+      const rowData = pastedRows[r];
+      const stepItem = { ...newPlanSteps[targetIndex], norms: { ...newPlanSteps[targetIndex].norms } };
+
+      for (let c = 0; c < rowData.length; c++) {
+        const targetColIndex = startColIndex + c;
+        if (targetColIndex < allCols.length) {
+          const colName = allCols[targetColIndex];
+          const val = rowData[c].trim();
+          
+          if (['name', 'role', 'buffer'].includes(colName)) {
+            stepItem[colName] = colName === 'buffer' ? (parseFloat(val) || 0) : val;
+          } else {
+            if (val !== '') {
+              stepItem.norms[colName] = parseFloat(val) || 0;
+            }
+          }
+        }
+      }
+      newPlanSteps[targetIndex] = stepItem;
+    }
+    setPlanSteps(newPlanSteps);
+  };
+
+  const handlePasteDeliverables = (e, index, field) => {
+    if (!e.clipboardData) return;
+    const pasteData = e.clipboardData.getData('text/plain');
+    if (!pasteData) return;
+
+    const pastedRows = pasteData.split(/\r?\n/).filter((r) => r.length > 0).map((r) => r.split('\t'));
+    if (pastedRows.length <= 1 && pastedRows[0].length <= 1) return;
+
+    e.preventDefault();
+
+    const allCols = ['term', 'className', 'unitNo', 'unitName', 'clusterId', 'pages'];
+    const startColIndex = allCols.indexOf(field);
+
+    if (startColIndex === -1) return;
+
+    const newDeliverables = [...deliverables];
+
+    for (let r = 0; r < pastedRows.length; r++) {
+      const targetIndex = index + r;
+
+      if (targetIndex >= newDeliverables.length) {
+        newDeliverables.push({
+          term: '',
+          className: '',
+          unitNo: '',
+          unitName: '',
+          clusterId: clusters[0]?.id || '',
+          pages: 0
+        });
+      }
+
+      const rowData = pastedRows[r];
+      const deliverableItem = { ...newDeliverables[targetIndex] };
+
+      for (let c = 0; c < rowData.length; c++) {
+        const targetColIndex = startColIndex + c;
+        if (targetColIndex < allCols.length) {
+          const colName = allCols[targetColIndex];
+          const val = rowData[c].trim();
+          
+          if (colName === 'pages') {
+            deliverableItem[colName] = parseInt(val) || 0;
+          } else if (colName === 'clusterId') {
+            // Find cluster ID by name if possible, or use as is
+            const clusterMatch = clusters.find(cl => 
+              cl.name.toLowerCase() === val.toLowerCase() || 
+              cl.id === val
+            );
+            deliverableItem[colName] = clusterMatch ? clusterMatch.id : val;
+          } else {
+            deliverableItem[colName] = val;
+          }
+        }
+      }
+      newDeliverables[targetIndex] = deliverableItem;
+    }
+    setDeliverables(newDeliverables);
+  };
+
   return (
     <div className={styles.wizard}>
       <div className={styles.stepsNav}>
@@ -217,23 +329,23 @@ export default function PlanWizard({ projectId, userId, clusters }) {
                       <td>
                         <input className="form-input" value={step.name} onChange={e => {
                           const ns = [...planSteps]; ns[idx].name = e.target.value; setPlanSteps(ns);
-                        }} />
+                        }} onPaste={(e) => handlePastePlanSteps(e, idx, 'name')} />
                       </td>
                       <td>
                         <input className="form-input" value={step.role} onChange={e => {
                           const ns = [...planSteps]; ns[idx].role = e.target.value; setPlanSteps(ns);
-                        }} />
+                        }} onPaste={(e) => handlePastePlanSteps(e, idx, 'role')} />
                       </td>
                       <td>
                         <input type="number" className="form-input" value={step.buffer} onChange={e => {
                           const ns = [...planSteps]; ns[idx].buffer = e.target.value; setPlanSteps(ns);
-                        }} />
+                        }} onPaste={(e) => handlePastePlanSteps(e, idx, 'buffer')} />
                       </td>
                       {clusters.map(c => (
                         <td key={c.id}>
                           <input type="number" step="0.01" className="form-input" value={step.norms[c.id]} onChange={e => {
                             const ns = [...planSteps]; ns[idx].norms[c.id] = e.target.value; setPlanSteps(ns);
-                          }} />
+                          }} onPaste={(e) => handlePastePlanSteps(e, idx, c.id)} />
                         </td>
                       ))}
                       <td>
@@ -268,16 +380,16 @@ export default function PlanWizard({ projectId, userId, clusters }) {
                 <tbody>
                   {deliverables.map((d, idx) => (
                     <tr key={idx}>
-                      <td><input className="form-input" value={d.term} onChange={e => { const nd = [...deliverables]; nd[idx].term = e.target.value; setDeliverables(nd); }} /></td>
-                      <td><input className="form-input" value={d.className} onChange={e => { const nd = [...deliverables]; nd[idx].className = e.target.value; setDeliverables(nd); }} /></td>
-                      <td><input className="form-input" value={d.unitNo} onChange={e => { const nd = [...deliverables]; nd[idx].unitNo = e.target.value; setDeliverables(nd); }} /></td>
-                      <td><input className="form-input" value={d.unitName} onChange={e => { const nd = [...deliverables]; nd[idx].unitName = e.target.value; setDeliverables(nd); }} /></td>
+                      <td><input className="form-input" value={d.term} onChange={e => { const nd = [...deliverables]; nd[idx].term = e.target.value; setDeliverables(nd); }} onPaste={(e) => handlePasteDeliverables(e, idx, 'term')} /></td>
+                      <td><input className="form-input" value={d.className} onChange={e => { const nd = [...deliverables]; nd[idx].className = e.target.value; setDeliverables(nd); }} onPaste={(e) => handlePasteDeliverables(e, idx, 'className')} /></td>
+                      <td><input className="form-input" value={d.unitNo} onChange={e => { const nd = [...deliverables]; nd[idx].unitNo = e.target.value; setDeliverables(nd); }} onPaste={(e) => handlePasteDeliverables(e, idx, 'unitNo')} /></td>
+                      <td><input className="form-input" value={d.unitName} onChange={e => { const nd = [...deliverables]; nd[idx].unitName = e.target.value; setDeliverables(nd); }} onPaste={(e) => handlePasteDeliverables(e, idx, 'unitName')} /></td>
                       <td>
-                        <select className="form-input" value={d.clusterId} onChange={e => { const nd = [...deliverables]; nd[idx].clusterId = e.target.value; setDeliverables(nd); }}>
+                        <select className="form-input" value={d.clusterId} onChange={e => { const nd = [...deliverables]; nd[idx].clusterId = e.target.value; setDeliverables(nd); }} onPaste={(e) => handlePasteDeliverables(e, idx, 'clusterId')}>
                           {clusters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                         </select>
                       </td>
-                      <td><input type="number" className="form-input" value={d.pages} onChange={e => { const nd = [...deliverables]; nd[idx].pages = e.target.value; setDeliverables(nd); }} /></td>
+                      <td><input type="number" className="form-input" value={d.pages} onChange={e => { const nd = [...deliverables]; nd[idx].pages = e.target.value; setDeliverables(nd); }} onPaste={(e) => handlePasteDeliverables(e, idx, 'pages')} /></td>
                       <td>
                         <button className="btn btn-danger btn-sm" onClick={() => removeDeliverable(idx)}><Trash2 size={14}/></button>
                       </td>
