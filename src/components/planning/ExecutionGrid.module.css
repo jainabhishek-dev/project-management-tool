@@ -24,7 +24,9 @@
 
 .tableWrapper {
   overflow-x: auto;
+  overflow-y: auto;
   max-width: 100%;
+  max-height: calc(100vh - 240px); /* Ensures the grid scrolls internally, freezing the top row */
 }
 
 .executionTable {
@@ -158,17 +160,18 @@ td.stickyName {
 /* ── Book header row ─────────────────────────────────────────────────── */
 
 .bookHeaderRow {
-  border-top: 2px solid var(--color-border);
-  border-bottom: 2px solid rgba(255, 255, 255, 0.05);
+  border-top: 2px solid rgba(99, 102, 241, 0.2);
+  border-bottom: 2px solid rgba(99, 102, 241, 0.2);
 }
 
 .bookHeaderRow td {
-  background: var(--color-bg-tertiary); /* Solid background to obscure scrolling content! */
+  /* Using a gradient over solid to achieve an opaque tinted background! */
+  background: linear-gradient(0deg, rgba(99, 102, 241, 0.08), rgba(99, 102, 241, 0.08)), var(--color-bg-secondary);
 }
 
 .bookHeaderRow td.stickyUnit,
 .bookHeaderRow td.stickyName {
-  background: var(--color-bg-tertiary);
+  background: linear-gradient(0deg, rgba(99, 102, 241, 0.08), rgba(99, 102, 241, 0.08)), var(--color-bg-secondary);
   z-index: 10;
 }
 

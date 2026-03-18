@@ -244,15 +244,15 @@ export default function ExecutionGrid({
                 /* Book header row */
                 <tr key={`book-header-${book.id}`} className={styles.bookHeaderRow}>
                   {/* Issue 2 Fix: Individual Sticky Columns for Header Row */}
-                  <td className={`${styles.stickyUnit} ${styles.bookHeaderCell}`} style={{ zIndex: 12 }}></td>
-                  <td className={`${styles.stickyName} ${styles.bookHeaderCell}`} style={{ zIndex: 12, borderRight: 'none' }}>
+                  <td className={`${styles.stickyUnit} ${styles.bookHeaderCell}`} style={{ borderRight: 'none' }}></td>
+                  <td className={`${styles.stickyName} ${styles.bookHeaderCell}`} style={{ borderRight: 'none' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <BookOpen size={14} />
                       <span>{book.name}</span>
                     </div>
                   </td>
-                  <td className={`${styles.stickySmall} ${styles.bookHeaderCell}`} style={{ zIndex: 12, borderRight: 'none' }}></td>
-                  {isPrint && <td className={`${styles.stickySmall} ${styles.bookHeaderCell}`} style={{ zIndex: 12, borderRight: 'none' }}></td>}
+                  <td className={`${styles.stickySmall} ${styles.bookHeaderCell}`} style={{ borderRight: 'none' }}></td>
+                  {isPrint && <td className={`${styles.stickySmall} ${styles.bookHeaderCell}`} style={{ borderRight: 'none' }}></td>}
                   <td
                     colSpan={steps.length}
                     className={styles.bookHeaderCell}
