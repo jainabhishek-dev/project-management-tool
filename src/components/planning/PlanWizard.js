@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase/client';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { Plus, Minus, Check, ChevronRight, ChevronLeft, LoaderGap, Trash2 } from 'lucide-react';
 import styles from './PlanWizard.module.css';
 
@@ -14,6 +14,7 @@ const STEPS_WIZARD = [
 
 export default function PlanWizard({ projectId, userId, clusters }) {
   const router = useRouter();
+  const supabase = getSupabaseBrowserClient();
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
