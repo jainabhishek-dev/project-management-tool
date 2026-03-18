@@ -2,6 +2,7 @@ import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
+import { format, parseISO } from 'date-fns';
 import Header from '@/components/layout/Header';
 import { formatCurrency } from '@/lib/utils/budget-calculations';
 import { isAdmin } from '@/lib/utils/admin';
@@ -21,6 +22,9 @@ export default async function ProjectDetailPage({ params }) {
       budgets (
         id, name, status, total_estimated_budget, currency, created_at,
         profiles:created_by ( full_name, email )
+      ),
+      project_plans (
+        id, name, type, start_date, target_end_date, created_at
       )
     `)
     .eq('id', id)
@@ -30,6 +34,9 @@ export default async function ProjectDetailPage({ params }) {
 
   const isOwner = project.created_by === user.id;
   const budgets = [...(project.budgets || [])].sort(
+    (a, b) => new Date(b.created_at) - new Date(a.created_at)
+  );
+  const plans = [...(project.project_plans || [])].sort(
     (a, b) => new Date(b.created_at) - new Date(a.created_at)
   );
 
@@ -55,6 +62,9 @@ export default async function ProjectDetailPage({ params }) {
         actions={
           <div style={{ display: 'flex', gap: '8px' }}>
             <DeleteButton type="project" id={project.id} isAdmin={isUserAdmin} onSuccessRedirect="/projects" />
+            <Link href={`/projects/${id}/plans/new`} className="btn btn-secondary">
+              <Plus size={16} /> New Plan
+            </Link>
             <Link href={`/budgets/new?project_id=${project.id}`} className="btn btn-primary">
               <Plus size={16} /> New Budget
             </Link>
@@ -66,6 +76,10 @@ export default async function ProjectDetailPage({ params }) {
         <div className="stat-card">
           <p className="stat-label">Total Budgets</p>
           <p className="stat-value">{budgets.length}</p>
+        </div>
+        <div className="stat-card">
+          <p className="stat-label">Project Plans</p>
+          <p className="stat-value">{plans.length}</p>
         </div>
         <div className="stat-card">
           <p className="stat-label">Combined Budget</p>
@@ -84,6 +98,59 @@ export default async function ProjectDetailPage({ params }) {
       {project.description && (
         <div className={styles.descCard}>
           <p>{project.description}</p>
+        </div>
+      )}
+
+      {/* PROJECT PLANS SECTION */}
+      <h2 className={styles.sectionTitle}>Project Plans</h2>
+      {plans.length === 0 ? (
+        <div className="empty-state" style={{ padding: '48px 0', marginBottom: '32px' }}>
+          <p className="empty-state-title">No plans yet</p>
+          <p className="empty-state-text">Create a project plan for Print or Digital streams.</p>
+          <Link href={`/projects/${id}/plans/new`} className="btn btn-primary">
+            <Plus size={16} /> Create Plan
+          </Link>
+        </div>
+      ) : (
+        <div className={styles.tableWrapper} style={{ marginBottom: '32px' }}>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Plan Name</th>
+                <th>Type</th>
+                <th>Start Date</th>
+                <th>Target End Date</th>
+                <th>Created</th>
+                <th style={{ textAlign: 'right' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {plans.map((p) => (
+                <tr key={p.id}>
+                  <td>
+                    <Link href={`/projects/${id}/plans/${p.id}`} className={styles.budgetLink}>
+                      {p.name}
+                    </Link>
+                  </td>
+                  <td>
+                    <span className="badge badge-submitted">{p.type}</span>
+                  </td>
+                  <td>
+                    {format(parseISO(p.start_date), 'dd MMM yyyy')}
+                  </td>
+                  <td>
+                    {p.target_end_date ? format(parseISO(p.target_end_date), 'dd MMM yyyy') : '—'}
+                  </td>
+                  <td>
+                    {format(new Date(p.created_at), 'dd MMM yyyy')}
+                  </td>
+                  <td style={{ textAlign: 'right' }}>
+                    <DeleteButton type="plan" id={p.id} isAdmin={isUserAdmin} onSuccessRefresh />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 

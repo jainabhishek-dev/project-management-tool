@@ -11,18 +11,24 @@ export default async function DashboardPage() {
   const { data: { user } } = await supabase.auth.getUser();
 
   const [
-    { data: myProjects }, 
-    { data: myBudgets }, 
+    { data: myProjects },
+    { data: myBudgets },
     { data: profile },
     { count: allProjectsCount },
-    { data: allBudgetsRaw }
+    { data: allBudgetsRaw },
+    { count: allPlansCount },
+    { data: myPlans }
   ] = await Promise.all([
     supabase.from('projects').select('id').eq('created_by', user.id),
     supabase.from('budgets').select('total_estimated_budget').eq('created_by', user.id),
     supabase.from('profiles').select('full_name').eq('id', user.id).single(),
     supabase.from('projects').select('id', { count: 'exact', head: true }),
-    supabase.from('budgets').select('total_estimated_budget, status')
+    supabase.from('budgets').select('total_estimated_budget, status'),
+    supabase.from('project_plans').select('id', { count: 'exact', head: true }),
+    supabase.from('project_plans').select('id').eq('created_by', user.id)
   ]);
+
+  const myPlansCount = myPlans?.length || 0;
 
   // Personal Totals
   const myBudgetTotal = (myBudgets || []).reduce(
@@ -66,6 +72,10 @@ export default async function DashboardPage() {
             <p className="stat-value">{myBudgets?.length ?? 0}</p>
           </div>
           <div className="stat-card">
+            <p className="stat-label">My Plans</p>
+            <p className="stat-value">{myPlansCount}</p>
+          </div>
+          <div className="stat-card">
             <p className="stat-label">My Total Budget</p>
             <p className="stat-value" style={{ fontSize: '1.5rem' }}>
               {formatCurrency(myBudgetTotal)}
@@ -88,6 +98,10 @@ export default async function DashboardPage() {
           <div className="stat-card">
             <p className="stat-label">All Budgets</p>
             <p className="stat-value">{allBudgetsCount}</p>
+          </div>
+          <div className="stat-card">
+            <p className="stat-label">All Plans</p>
+            <p className="stat-value">{allPlansCount}</p>
           </div>
           <div className="stat-card" style={{ background: 'var(--color-bg-card-hover)', borderColor: 'var(--color-primary-dim)' }}>
             <p className="stat-label">Overall Total Budget</p>

@@ -16,11 +16,12 @@ import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 
 const NAV_ITEMS = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/', label: 'Overview', icon: LayoutDashboard },
+  { href: '/portfolio', label: 'All Projects View', icon: LayoutDashboard },
   { href: '/projects', label: 'Projects', icon: FolderOpen },
   { href: '/budgets', label: 'Budgets', icon: DollarSign },
-  { href: '/analytics', label: 'Analytics', icon: BarChart3 },
-  { href: '/chat', label: 'Ask AI', icon: Sparkles },
+  { href: '/analytics', label: 'Insights', icon: BarChart3 },
+  { href: '/chat', label: 'AI Planner', icon: Sparkles },
   { href: '/risks', label: 'Risk Management', icon: AlertTriangle, comingSoon: true },
 ];
 

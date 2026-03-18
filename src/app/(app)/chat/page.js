@@ -58,7 +58,7 @@ export default function ChatPage() {
   // Simple Markdown-to-HTML helper for basic formatting (Tables, Bold, Bullets)
   function formatContent(dataString) {
     if (!dataString) return '';
-    
+
     let data;
     try {
       // The AI returns a JSON string, try to parse it
@@ -149,7 +149,7 @@ export default function ChatPage() {
               <div className={styles.senderName}>LeadSchool AI</div>
               <div className={styles.thinking}>
                 <div className={styles.pulse} />
-                Analysing financial data...
+                Analysing...
               </div>
             </div>
           )}

@@ -17,12 +17,15 @@ export default function DeleteButton({ type, id, isAdmin, onSuccessRedirect, onS
     if (!firstConfirm) return;
 
     if (type === 'project') {
-      const secondConfirm = window.confirm('WARNING: Deleting a project will result in deleting ALL budgets mapped to this project. Do you still want to proceed?');
+      const secondConfirm = window.confirm('WARNING: Deleting a project will result in deleting ALL budgets and plans mapped to this project. Do you still want to proceed?');
       if (!secondConfirm) return;
     }
 
     setLoading(true);
-    const table = type === 'project' ? 'projects' : 'budgets';
+    let table = '';
+    if (type === 'project') table = 'projects';
+    else if (type === 'plan') table = 'project_plans';
+    else table = 'budgets';
 
     const { error } = await supabase.from(table).delete().eq('id', id);
 
