@@ -69,6 +69,28 @@
   font-size: var(--font-size-xs);
 }
 
+/* Team member badges shown under the step role/name */
+.stepMembers {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.memberBadge {
+  display: inline-block;
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--color-accent);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.6rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
 .stickyCol {
   position: sticky;
   left: 0;
@@ -96,12 +118,14 @@ td.stickyCol {
   font-size: var(--font-size-sm);
 }
 
-.clusterId {
+/* Cluster label (human-readable, replaces raw UUID display) */
+.clusterLabel {
   background: var(--color-bg-glass);
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 0.7rem;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .stepCell {
@@ -119,25 +143,36 @@ td.stickyCol {
   gap: 4px;
 }
 
-.taskStatus {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: 0.7rem;
+/* Compact status dropdown inside task card */
+.statusSelect {
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 2px 4px;
+  font-size: 0.65rem;
   font-weight: 600;
-  color: var(--color-text-secondary);
-  margin-bottom: 2px;
+  cursor: pointer;
+  outline: none;
+  appearance: auto;
+}
+
+.statusSelect:focus {
+  border-color: var(--color-primary);
 }
 
 .taskDates {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   font-size: 0.65rem;
   color: var(--color-text-muted);
+  gap: 4px;
 }
 
 .dateLabel {
   text-transform: uppercase;
+  flex-shrink: 0;
 }
 
 .dateValue {
@@ -145,7 +180,29 @@ td.stickyCol {
   font-weight: 600;
 }
 
-.iconDone { color: var(--color-success); }
-.iconProgress { color: var(--color-warning); }
-.iconBlocked { color: var(--color-danger); }
-.iconOpen { color: var(--color-text-muted); }
+/* Editable end-date input inside task card */
+.dateInput {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 1px 3px;
+  font-size: 0.65rem;
+  color: var(--color-text-primary);
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  width: 100%;
+  color-scheme: dark;
+}
+
+.dateInput:focus {
+  border-color: var(--color-primary);
+}
+
+/* Empty task placeholder */
+.noTask {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  display: flex;
+  justify-content: center;
+}

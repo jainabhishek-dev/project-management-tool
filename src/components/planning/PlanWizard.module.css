@@ -92,3 +92,102 @@
     display: none;
   }
 }
+
+/* Completed step indicator */
+.stepIndicator.done .stepNum {
+  background: var(--color-success);
+  border-color: var(--color-success);
+  color: white;
+}
+
+/* Step description text */
+.stepDesc {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-6);
+  line-height: 1.6;
+}
+
+/* Editable cluster column header input */
+.clusterHeaderInput {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 0;
+  margin-bottom: 2px;
+  outline: none;
+}
+
+.clusterHeaderInput:focus {
+  border-bottom-color: var(--color-accent);
+}
+
+.clusterHeaderSub {
+  display: block;
+  font-size: 0.6rem;
+  color: var(--color-text-muted);
+  font-weight: 400;
+  text-transform: lowercase;
+  letter-spacing: 0;
+}
+
+/* Leave date tags in team members table */
+.leavesCell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.leaveTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: var(--color-text-primary);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 0.65rem;
+}
+
+.leaveRemove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0;
+}
+
+.leaveRemove:hover {
+  color: var(--color-danger);
+}
+
+/* Invisible date picker to add leaves */
+.leaveInput {
+  background: var(--color-bg-input);
+  border: 1px dashed var(--color-border);
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-size: 0.65rem;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  outline: none;
+  color-scheme: dark;
+  width: 34px;   /* shows just the calendar icon */
+}
+
+.leaveInput:focus {
+  width: auto;
+  border-color: var(--color-accent);
+}
+
