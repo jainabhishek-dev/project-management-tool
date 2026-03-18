@@ -1,5 +1,5 @@
 .container {
-  overflow: hidden;
+  overflow: clip; /* required for sticky headers to work without breaking borders */
   background: var(--color-bg-secondary);
   border-radius: var(--radius-lg);
   border: 1px solid var(--color-border);

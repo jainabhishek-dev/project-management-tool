@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { format, parseISO } from 'date-fns';
 import { Calendar, BookOpen, AlertCircle } from 'lucide-react';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
@@ -24,8 +24,22 @@ export default function ExecutionGrid({
   memberLeavesMap,
   holidaySet,
 }) {
-  const [activeTasks, setActiveTasks] = useState(tasks);
+  const [activeTasks, setActiveTasks] = useState(tasks || []);
   const supabase = getSupabaseBrowserClient();
+
+  // Issue 1 Fix: Fetch tasks immediately if initial server load returned [] but tasks exist in DB
+  useEffect(() => {
+    async function fetchTasks() {
+      if ((tasks || []).length === 0) {
+        const { data } = await supabase
+          .from('planning_tasks')
+          .select('*')
+          .eq('plan_id', plan.id);
+        if (data && data.length > 0) setActiveTasks(data);
+      }
+    }
+    fetchTasks();
+  }, [tasks, plan.id, supabase]);
 
   const isPrint = plan.type !== 'Digital';
   const steps = useMemo(
@@ -229,14 +243,21 @@ export default function ExecutionGrid({
               return [
                 /* Book header row */
                 <tr key={`book-header-${book.id}`} className={styles.bookHeaderRow}>
+                  {/* Issue 2 Fix: Individual Sticky Columns for Header Row */}
+                  <td className={`${styles.stickyUnit} ${styles.bookHeaderCell}`} style={{ zIndex: 12 }}></td>
+                  <td className={`${styles.stickyName} ${styles.bookHeaderCell}`} style={{ zIndex: 12, borderRight: 'none' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <BookOpen size={14} />
+                      <span>{book.name}</span>
+                    </div>
+                  </td>
+                  <td className={`${styles.stickySmall} ${styles.bookHeaderCell}`} style={{ zIndex: 12, borderRight: 'none' }}></td>
+                  {isPrint && <td className={`${styles.stickySmall} ${styles.bookHeaderCell}`} style={{ zIndex: 12, borderRight: 'none' }}></td>}
                   <td
-                    colSpan={
-                      (isPrint ? 4 : 3) + steps.length
-                    }
+                    colSpan={steps.length}
                     className={styles.bookHeaderCell}
+                    style={{ borderRight: 'none' }}
                   >
-                    <BookOpen size={14} />
-                    <span>{book.name}</span>
                   </td>
                 </tr>,
 
