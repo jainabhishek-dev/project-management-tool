@@ -46,14 +46,20 @@
   letter-spacing: 0.05em;
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 20; /* Must be higher than body rows */
   white-space: nowrap;
+}
+
+/* Corner boundaries (both top and left sticky) */
+.headerRow th.stickyUnit,
+.headerRow th.stickyName {
+  z-index: 30;
 }
 
 .stickyUnit {
   position: sticky;
   left: 0;
-  z-index: 11;
+  z-index: 10; /* Lower than top header */
   background: var(--color-bg-tertiary);
   min-width: 70px;
   border-right: 1px solid var(--color-border);
@@ -62,7 +68,7 @@
 .stickyName {
   position: sticky;
   left: 70px;
-  z-index: 11;
+  z-index: 10; /* Lower than top header */
   background: var(--color-bg-tertiary);
   min-width: 220px;
   border-right: 1px solid var(--color-border);
@@ -153,11 +159,21 @@ td.stickyName {
 
 .bookHeaderRow {
   border-top: 2px solid var(--color-border);
+  border-bottom: 2px solid rgba(255, 255, 255, 0.05);
+}
+
+.bookHeaderRow td {
+  background: var(--color-bg-tertiary); /* Solid background to obscure scrolling content! */
+}
+
+.bookHeaderRow td.stickyUnit,
+.bookHeaderRow td.stickyName {
+  background: var(--color-bg-tertiary);
+  z-index: 10;
 }
 
 .bookHeaderCell {
   padding: var(--space-2) var(--space-4);
-  background: rgba(99, 102, 241, 0.07);
   color: var(--color-accent);
   font-size: var(--font-size-xs);
   font-weight: 700;
