@@ -78,14 +78,15 @@ export const forecastExecutionTasks = (planTemplate, deliverables, availabilityM
   const tasks = [];
   
   // 1. Group steps by their parallel dependencies
-  const steps = planTemplate.steps.sort((a, b) => a.display_order - b.display_order);
+  const steps = [...(planTemplate.steps || [])].sort((a, b) => a.display_order - b.display_order);
 
   deliverables.forEach(deliverable => {
     const deliverableTasks = {}; // Store tasks for this unit by stepId to resolve dependencies
 
     steps.forEach(step => {
       // Find norm for this step and deliverable's cluster
-      const normObj = planTemplate.norms.find(n => n.step_id === step.id && n.cluster_id === deliverable.cluster_id);
+      // The norms are nested inside the step object in our recent Supabase fetch pattern
+      const normObj = (step.norms || []).find(n => n.cluster_id === deliverable.cluster_id);
       const effort = normObj ? parseFloat(normObj.norm_in_mandays) : 0;
       
       // Determine Start Date
