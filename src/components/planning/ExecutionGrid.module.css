@@ -1,8 +1,11 @@
 .container {
-  overflow: clip; /* required for sticky headers to work without breaking borders */
+  overflow: hidden;
   background: var(--color-bg-secondary);
   border-radius: var(--radius-lg);
   border: 1px solid var(--color-border);
+  height: calc(100vh - 160px); /* Strictly anchors the grid wrapper to screen boundaries! */
+  display: flex;
+  flex-direction: column;
 }
 
 .tableHead {
@@ -12,6 +15,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;
 }
 
 .projectInfo {
@@ -23,10 +27,9 @@
 }
 
 .tableWrapper {
-  overflow-x: auto;
-  overflow-y: auto;
+  overflow: auto;
+  flex: 1; /* Expands to fill the remaining locked height perfectly, triggering scroll! */
   max-width: 100%;
-  max-height: calc(100vh - 240px); /* Ensures the grid scrolls internally, freezing the top row */
 }
 
 .executionTable {
@@ -48,20 +51,20 @@
   letter-spacing: 0.05em;
   position: sticky;
   top: 0;
-  z-index: 20; /* Must be higher than body rows */
+  z-index: 100; /* Drastically higher than body rows */
   white-space: nowrap;
 }
 
 /* Corner boundaries (both top and left sticky) */
 .headerRow th.stickyUnit,
 .headerRow th.stickyName {
-  z-index: 30;
+  z-index: 120;
 }
 
 .stickyUnit {
   position: sticky;
   left: 0;
-  z-index: 10; /* Lower than top header */
+  z-index: 50; /* Lower than top header */
   background: var(--color-bg-tertiary);
   min-width: 70px;
   border-right: 1px solid var(--color-border);
@@ -70,7 +73,7 @@
 .stickyName {
   position: sticky;
   left: 70px;
-  z-index: 10; /* Lower than top header */
+  z-index: 50; /* Lower than top header */
   background: var(--color-bg-tertiary);
   min-width: 220px;
   border-right: 1px solid var(--color-border);
@@ -167,12 +170,13 @@ td.stickyName {
 .bookHeaderRow td {
   /* Using a gradient over solid to achieve an opaque tinted background! */
   background: linear-gradient(0deg, rgba(99, 102, 241, 0.08), rgba(99, 102, 241, 0.08)), var(--color-bg-secondary);
+  border-right-color: transparent !important; /* Forces cells to look like one continuous line */
 }
 
 .bookHeaderRow td.stickyUnit,
 .bookHeaderRow td.stickyName {
   background: linear-gradient(0deg, rgba(99, 102, 241, 0.08), rgba(99, 102, 241, 0.08)), var(--color-bg-secondary);
-  z-index: 10;
+  z-index: 50;
 }
 
 .bookHeaderCell {
@@ -181,9 +185,7 @@ td.stickyName {
   font-size: var(--font-size-xs);
   font-weight: 700;
   letter-spacing: 0.04em;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
+  /* Removed 'display: flex' — it breaks grid geometries and colSpan functionality */
 }
 
 /* ── Step data cells ─────────────────────────────────────────────────── */
