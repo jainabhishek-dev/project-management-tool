@@ -117,6 +117,49 @@ export default function ExecutionGrid({
     }
   }
 
+  // ── Inline Click-to-Edit Date Component ─────────────────────────────────
+  function ClickToEditDate({ value, onChange, disabled, compact }) {
+    const [isEditing, setIsEditing] = useState(false);
+
+    if (disabled) {
+      return (
+        <span className={compact ? styles.dateValue : styles.dateValue}>
+          {value ? format(parseISO(value), 'dd MMM yyyy') : '—'}
+        </span>
+      );
+    }
+
+    if (!isEditing) {
+      return (
+        <div
+          className={compact ? styles.compactDateDisplay : styles.dateValue}
+          onClick={() => setIsEditing(true)}
+          style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}
+          title="Click to edit date"
+        >
+          {value ? format(parseISO(value), 'dd MMM yyyy') : '—'}
+        </div>
+      );
+    }
+
+    return (
+      <input
+        type="date"
+        className={compact ? styles.compactDateInput : styles.dateInput}
+        value={value || ''}
+        autoFocus
+        onBlur={() => setIsEditing(false)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === 'Escape') setIsEditing(false);
+        }}
+        onChange={(e) => {
+          onChange(e.target.value);
+          setIsEditing(false);
+        }}
+      />
+    );
+  }
+
   const getStatusClass = (status) => {
     switch (status) {
       case 'Yet to start':
@@ -152,13 +195,11 @@ export default function ExecutionGrid({
       return (
         <td key={task.id || step.id} className={`${styles.stepCell} ${isBookRow ? styles.bookHeaderCell : ''}`}>
           <div className={`${styles.taskCardCompact} ${statusClass}`}>
-            <input
-              type="date"
-              className={styles.compactDateInput}
-              value={task.planned_end_date || ''}
+            <ClickToEditDate
+              value={task.planned_end_date}
               disabled={!task.id}
-              onChange={(e) => handleEndDateChange(task.id, e.target.value)}
-              title={assignedMember ? assignedMember.name : 'Unassigned'}
+              onChange={(value) => handleEndDateChange(task.id, value)}
+              compact={true}
             />
           </div>
         </td>
@@ -200,7 +241,7 @@ export default function ExecutionGrid({
             <span className={styles.dateLabel}>Start:</span>
             <span className={styles.dateValue}>
               {task.planned_start_date
-                ? format(parseISO(task.planned_start_date), 'dd MMM')
+                ? format(parseISO(task.planned_start_date), 'dd MMM yyyy')
                 : '—'}
             </span>
           </div>
@@ -208,12 +249,11 @@ export default function ExecutionGrid({
           {/* Editable end date */}
           <div className={styles.taskDates}>
             <span className={styles.dateLabel}>End:</span>
-            <input
-              type="date"
-              className={styles.dateInput}
-              value={task.planned_end_date || ''}
+            <ClickToEditDate
+              value={task.planned_end_date}
               disabled={!task.id}
-              onChange={(e) => handleEndDateChange(task.id, e.target.value)}
+              onChange={(value) => handleEndDateChange(task.id, value)}
+              compact={false}
             />
           </div>
         </div>

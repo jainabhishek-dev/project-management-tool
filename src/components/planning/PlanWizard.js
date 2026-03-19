@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
-import { Plus, Trash2, Check, ChevronRight, ChevronLeft, BookOpen } from 'lucide-react';
+import { Plus, Trash2, Check, ChevronRight, ChevronLeft, BookOpen, GripVertical } from 'lucide-react';
 import styles from './PlanWizard.module.css';
 
 const STEPS_WIZARD = [
@@ -40,6 +40,10 @@ export default function PlanWizard({ projectId, userId, clusters }) {
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  // ── Drag & Drop States ──
+  const [draggedStepIdx, setDraggedStepIdx] = useState(null);
+  const [dragOverStepIdx, setDragOverStepIdx] = useState(null);
 
   // ── Step 1: Basic Info ────────────────────────────────────────────────
   const [info, setInfo] = useState({
@@ -80,6 +84,57 @@ export default function PlanWizard({ projectId, userId, clusters }) {
       norms: clusters.reduce((acc, c) => ({ ...acc, [c.id]: 0.5 }), {}),
     },
   ]);
+
+  // ── Drag & Drop Handlers ──
+  const handleDragStartSteps = (e, index) => {
+    setDraggedStepIdx(index);
+    e.dataTransfer.setData('text/plain', index.toString());
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOverSteps = (e, index) => {
+    e.preventDefault();
+    if (dragOverStepIdx !== index) setDragOverStepIdx(index);
+  };
+
+  const handleDropSteps = (e, targetIdx) => {
+    e.preventDefault();
+    if (draggedStepIdx === null || draggedStepIdx === targetIdx) {
+      setDraggedStepIdx(null);
+      setDragOverStepIdx(null);
+      return;
+    }
+
+    setPlanSteps((prev) => {
+      const newSteps = [...prev];
+      const draggedItem = newSteps[draggedStepIdx];
+
+      newSteps.splice(draggedStepIdx, 1);
+      newSteps.splice(targetIdx, 0, draggedItem);
+
+      // Map old index to new index to fix parallel dependencies
+      const newIndexMap = {};
+      for (let i = 0; i < prev.length; i++) {
+        const newPos = newSteps.indexOf(prev[i]);
+        if (newPos !== -1) newIndexMap[i] = newPos;
+      }
+
+      return newSteps.map((s) => {
+        if (s.dependsOnIndex !== null && s.dependsOnIndex !== undefined) {
+          return { ...s, dependsOnIndex: newIndexMap[s.dependsOnIndex] };
+        }
+        return s;
+      });
+    });
+
+    setDraggedStepIdx(null);
+    setDragOverStepIdx(null);
+  };
+
+  const handleDragEndSteps = () => {
+    setDraggedStepIdx(null);
+    setDragOverStepIdx(null);
+  };
 
   // ── Step 3: Books & Chapters ──────────────────────────────────────────
   const [books, setBooks] = useState([
@@ -647,8 +702,21 @@ export default function PlanWizard({ projectId, userId, clusters }) {
                 </thead>
                 <tbody>
                   {planSteps.map((step, idx) => (
-                    <tr key={step._id}>
-                      <td>
+                    <tr
+                      key={step._id}
+                      draggable
+                      onDragStart={(e) => handleDragStartSteps(e, idx)}
+                      onDragOver={(e) => handleDragOverSteps(e, idx)}
+                      onDrop={(e) => handleDropSteps(e, idx)}
+                      onDragEnd={handleDragEndSteps}
+                      style={{
+                        borderTop: dragOverStepIdx === idx && draggedStepIdx !== idx ? '2px solid var(--color-primary)' : 'none',
+                      }}
+                    >
+                      <td style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ cursor: 'grab', paddingRight: '4px' }}>
+                          <GripVertical size={16} color="var(--color-text-muted)" />
+                        </div>
                         <input className="form-input" value={step.name}
                           placeholder={`Step ${idx + 1}`}
                           onChange={(e) => updateStep(idx, 'name', e.target.value)}
