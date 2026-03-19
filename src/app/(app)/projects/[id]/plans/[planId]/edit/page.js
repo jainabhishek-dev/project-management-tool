@@ -1,11 +1,10 @@
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
+import { getSupabaseServerClient } from '@/lib/supabase/server';
 import PlanWizard from '@/components/planning/PlanWizard';
 import { notFound, redirect } from 'next/navigation';
 
 export default async function EditPlanPage({ params }) {
-  const { id: projectId, planId } = params;
-  const supabase = createServerComponentClient({ cookies });
+  const { id: projectId, planId } = await params;
+  const supabase = await getSupabaseServerClient();
   
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) redirect('/login');
