@@ -124,10 +124,10 @@ export default function ExecutionGrid({
   }
 
   // ── Render a single task cell ───────────────────────────────────────────
-  function renderTaskCell(task, step) {
+  function renderTaskCell(task, step, isBookRow = false) {
     if (!task) {
       return (
-        <td key={step.id} className={styles.stepCell}>
+        <td key={step.id} className={`${styles.stepCell} ${isBookRow ? styles.bookHeaderCell : ''}`}>
           <span className={styles.noTask}>—</span>
         </td>
       );
@@ -139,7 +139,7 @@ export default function ExecutionGrid({
     const isUnassigned = !assignedMember;
 
     return (
-      <td key={step.id} className={styles.stepCell}>
+      <td key={task.id || step.id} className={`${styles.stepCell} ${isBookRow ? styles.bookHeaderCell : ''}`}>
         <div
           className={`${styles.taskCard} ${isUnassigned ? styles.taskUnassigned : ''}`}
         >
@@ -256,9 +256,21 @@ export default function ExecutionGrid({
                   <td
                     colSpan={steps.length}
                     className={styles.bookHeaderCell}
-                    style={{ borderRight: 'none' }}
+                    style={{ borderRight: 'none', display: 'none' }}
                   >
                   </td>
+
+                  {/* Render Book steps here, empty cells for chapters */}
+                  {steps.map((step) => {
+                    const isBookStep = step.unit_of_calculation === 'Book';
+                    if (isBookStep) {
+                      const bookTask = taskMap[`${book.id}-${step.id}`];
+                      return renderTaskCell(bookTask, step, true);
+                    }
+                    return (
+                      <td key={`empty-bd-${step.id}`} className={styles.bookHeaderCell}></td>
+                    );
+                  })}
                 </tr>,
 
                 /* Chapter rows */
@@ -284,16 +296,12 @@ export default function ExecutionGrid({
                         const isBookStep = step.unit_of_calculation === 'Book';
 
                         if (isBookStep) {
-                          // Only last chapter row shows the book-level task
-                          if (!isLastChapter) {
-                            return (
-                              <td key={step.id} className={styles.stepCell}>
-                                <span className={styles.noTask}>—</span>
-                              </td>
-                            );
-                          }
-                          const task = taskMap[`${book.id}-${step.id}`] || null;
-                          return renderTaskCell(task, step);
+                          // No task on chapter level for book steps (handled in the Book header row)
+                          return (
+                            <td key={step.id} className={`${styles.stepCell} ${styles.stepCellDisabled}`}>
+                              <span className={styles.noTask}></span>
+                            </td>
+                          );
                         }
 
                         // Chapter-level task
