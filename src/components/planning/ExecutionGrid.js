@@ -2,19 +2,12 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { format, parseISO } from 'date-fns';
-import { Calendar, BookOpen, AlertCircle } from 'lucide-react';
+import { Calendar, BookOpen, AlertCircle, Maximize2, Minimize2 } from 'lucide-react';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { cascadeAfterEdit } from '@/lib/utils/planning-calculations';
 import styles from './ExecutionGrid.module.css';
 
 const STATUS_OPTIONS = ['Yet to start', 'In Progress', 'Done', 'Skipped'];
-
-const STATUS_COLORS = {
-  Done: 'var(--color-success)',
-  'In Progress': 'var(--color-primary)',
-  Skipped: 'var(--color-text-muted)',
-  'Yet to start': 'var(--color-text-secondary)',
-};
 
 export default function ExecutionGrid({
   plan,
@@ -25,6 +18,7 @@ export default function ExecutionGrid({
   holidaySet,
 }) {
   const [activeTasks, setActiveTasks] = useState(tasks || []);
+  const [isCompact, setIsCompact] = useState(true); // Default to compact view
   const supabase = getSupabaseBrowserClient();
 
   // Issue 1 Fix: Fetch tasks immediately if initial server load returned [] but tasks exist in DB
@@ -123,6 +117,21 @@ export default function ExecutionGrid({
     }
   }
 
+  const getStatusClass = (status) => {
+    switch (status) {
+      case 'Yet to start':
+        return styles.statusYetToStart;
+      case 'In Progress':
+        return styles.statusInProgress;
+      case 'Done':
+        return styles.statusDone;
+      case 'Skipped':
+        return styles.statusSkipped;
+      default:
+        return styles.statusYetToStart;
+    }
+  };
+
   // ── Render a single task cell ───────────────────────────────────────────
   function renderTaskCell(task, step, isBookRow = false) {
     if (!task) {
@@ -137,11 +146,29 @@ export default function ExecutionGrid({
       ? memberById[task.plan_team_member_id]
       : null;
     const isUnassigned = !assignedMember;
+    const statusClass = getStatusClass(task.status);
+
+    if (isCompact) {
+      return (
+        <td key={task.id || step.id} className={`${styles.stepCell} ${isBookRow ? styles.bookHeaderCell : ''}`}>
+          <div className={`${styles.taskCardCompact} ${statusClass}`}>
+            <input
+              type="date"
+              className={styles.compactDateInput}
+              value={task.planned_end_date || ''}
+              disabled={!task.id}
+              onChange={(e) => handleEndDateChange(task.id, e.target.value)}
+              title={assignedMember ? assignedMember.name : 'Unassigned'}
+            />
+          </div>
+        </td>
+      );
+    }
 
     return (
       <td key={task.id || step.id} className={`${styles.stepCell} ${isBookRow ? styles.bookHeaderCell : ''}`}>
         <div
-          className={`${styles.taskCard} ${isUnassigned ? styles.taskUnassigned : ''}`}
+          className={`${styles.taskCard} ${statusClass} ${isUnassigned ? styles.taskUnassigned : ''}`}
         >
           {/* Member name */}
           {assignedMember ? (
@@ -158,7 +185,6 @@ export default function ExecutionGrid({
           <select
             className={styles.statusSelect}
             value={task.status || 'Yet to start'}
-            style={{ color: STATUS_COLORS[task.status] || STATUS_COLORS['Yet to start'] }}
             onChange={(e) => handleStatusChange(task.id, e.target.value)}
             disabled={!task.id}
           >
@@ -197,7 +223,7 @@ export default function ExecutionGrid({
 
   return (
     <div className={styles.container}>
-      {/* Timeline bar */}
+      {/* Timeline bar & Controls */}
       <div className={styles.tableHead}>
         <div className={styles.projectInfo}>
           <Calendar size={18} />
@@ -205,6 +231,14 @@ export default function ExecutionGrid({
             Timeline: {format(parseISO(plan.start_date), 'dd MMM yyyy')} onwards
           </span>
         </div>
+        <button
+          className={styles.toggleBtn}
+          onClick={() => setIsCompact(!isCompact)}
+          title={isCompact ? "Show Full Details" : "Compact Grid"}
+        >
+          {isCompact ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
+          {isCompact ? 'Expand' : 'Contract'}
+        </button>
       </div>
 
       <div className={styles.tableWrapper}>
@@ -221,7 +255,7 @@ export default function ExecutionGrid({
               {steps.map((step) => {
                 const isBookStep = step.unit_of_calculation === 'Book';
                 return (
-                  <th key={step.id} className={styles.stepCol}>
+                  <th key={step.id} className={`${styles.stepCol} ${isCompact ? styles.stepColCompact : ''}`}>
                     <div className={styles.stepHeader}>
                       {isBookStep && (
                         <span className={styles.bookStepBadge}>
@@ -274,12 +308,9 @@ export default function ExecutionGrid({
                 </tr>,
 
                 /* Chapter rows */
-                ...book.chapters.map((chapter, chIdx) => {
-                  const isLastChapter = chIdx === lastChapterIdx;
-                  const rowClass = chIdx % 2 === 0 ? styles.evenRow : styles.oddRow;
-
+                ...book.chapters.map((chapter) => {
                   return (
-                    <tr key={chapter.id} className={rowClass}>
+                    <tr key={chapter.id} className={styles.chapterRow}>
                       <td className={styles.stickyUnit}>{chapter.unit_no}</td>
                       <td className={styles.stickyName}>{chapter.unit_name}</td>
                       <td className={styles.stickySmall}>
