@@ -73,7 +73,16 @@ export default function PlanDetailClient({
               </button>
             </div>
             
-            {/* Edit Configuration feature is approved conceptually, but UI will arrive when full wizard is built */}
+            {/* Owner ONLY Configuration Button */}
+            {isOwner && (
+              <button
+                className="btn btn-secondary"
+                onClick={() => router.push(`/projects/${plan.project_id}/plans/${plan.id}/edit`)}
+                title="Edit Plan Configuration (Warning: Regenerates tasks)"
+              >
+                <Settings size={16} /> Settings
+              </button>
+            )}
           </div>
         }
       />

@@ -33,9 +33,11 @@ function generateId() {
   return Math.random().toString(36).slice(2, 10);
 }
 
-export default function PlanWizard({ projectId, userId, clusters }) {
+export default function PlanWizard({ projectId, userId, clusters, initialPlanData }) {
   const router = useRouter();
   const supabase = getSupabaseBrowserClient();
+
+  const isEditMode = !!initialPlanData;
 
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -46,44 +48,81 @@ export default function PlanWizard({ projectId, userId, clusters }) {
   const [dragOverStepIdx, setDragOverStepIdx] = useState(null);
 
   // ── Step 1: Basic Info ────────────────────────────────────────────────
-  const [info, setInfo] = useState({
-    name: '',
-    type: 'Print',
-    start_date: new Date().toISOString().split('T')[0],
+  const [info, setInfo] = useState(() => {
+    if (isEditMode) {
+      return {
+        name: initialPlanData.plan.name || '',
+        type: initialPlanData.plan.type || 'Print',
+        start_date: initialPlanData.plan.start_date || new Date().toISOString().split('T')[0],
+      };
+    }
+    return { name: '', type: 'Print', start_date: new Date().toISOString().split('T')[0] };
   });
 
   const isPrint = info.type !== 'Digital';
 
   // ── Step 2: Cluster Labels ────────────────────────────────────────────
-  const [clusterLabels, setClusterLabels] = useState(
-    clusters.reduce((acc, c) => ({ ...acc, [c.id]: c.name }), {})
-  );
+  const [clusterLabels, setClusterLabels] = useState(() => {
+    if (isEditMode && initialPlanData.plan.cluster_labels) {
+      return initialPlanData.plan.cluster_labels;
+    }
+    return clusters.reduce((acc, c) => ({ ...acc, [c.id]: c.name }), {});
+  });
 
   // ── Step 2: Steps & Norms ─────────────────────────────────────────────
-  const [planSteps, setPlanSteps] = useState([
-    {
-      _id: generateId(),
-      name: 'Step A',
-      role: 'Creator',
-      buffer: 0,
-      dependsOnIndex: null,
-      unitOfCalc: 'Chapter / Unit',
-      normPages: 0,
-      bookNorm: 0,
-      norms: clusters.reduce((acc, c) => ({ ...acc, [c.id]: 1 }), {}),
-    },
-    {
-      _id: generateId(),
-      name: 'Step B',
-      role: 'Reviewer 1',
-      buffer: 0,
-      dependsOnIndex: 0,
-      unitOfCalc: 'Chapter / Unit',
-      normPages: 0,
-      bookNorm: 0,
-      norms: clusters.reduce((acc, c) => ({ ...acc, [c.id]: 0.5 }), {}),
-    },
-  ]);
+  const [planSteps, setPlanSteps] = useState(() => {
+    if (isEditMode && initialPlanData.steps.length > 0) {
+      // Create a map to resolve dependsOnIndex from the original step IDs
+      const idToIndexMap = {};
+      const sortedSteps = [...initialPlanData.steps].sort((a, b) => a.display_order - b.display_order);
+      sortedSteps.forEach((s, idx) => { idToIndexMap[s.id] = idx; });
+
+      return sortedSteps.map((s) => {
+        // Flatten norms array into { [clusterId]: value } map
+        const normsMap = {};
+        if (s.planning_norms) {
+          s.planning_norms.forEach(n => { normsMap[n.cluster_id] = n.norm_in_mandays; });
+        }
+        
+        return {
+          _id: s.id, // we reuse the real DB UUID as the react key
+          name: s.name,
+          role: s.role_required,
+          buffer: s.buffer_days,
+          dependsOnIndex: s.parallel_dependency_id ? idToIndexMap[s.parallel_dependency_id] : null,
+          unitOfCalc: s.unit_of_calculation || 'Chapter / Unit',
+          normPages: s.norm_pages || 0,
+          bookNorm: s.book_norm_in_mandays || 0,
+          norms: normsMap,
+        };
+      });
+    }
+
+    return [
+      {
+        _id: generateId(),
+        name: 'Step A',
+        role: 'Creator',
+        buffer: 0,
+        dependsOnIndex: null,
+        unitOfCalc: 'Chapter / Unit',
+        normPages: 0,
+        bookNorm: 0,
+        norms: clusters.reduce((acc, c) => ({ ...acc, [c.id]: 1 }), {}),
+      },
+      {
+        _id: generateId(),
+        name: 'Step B',
+        role: 'Reviewer 1',
+        buffer: 0,
+        dependsOnIndex: 0,
+        unitOfCalc: 'Chapter / Unit',
+        normPages: 0,
+        bookNorm: 0,
+        norms: clusters.reduce((acc, c) => ({ ...acc, [c.id]: 0.5 }), {}),
+      },
+    ];
+  });
 
   // ── Drag & Drop Handlers ──
   const handleDragStartSteps = (e, index) => {
@@ -137,31 +176,66 @@ export default function PlanWizard({ projectId, userId, clusters }) {
   };
 
   // ── Step 3: Books & Chapters ──────────────────────────────────────────
-  const [books, setBooks] = useState([
-    {
-      _id: generateId(),
-      name: '',
-      chapters: [
-        {
-          _id: generateId(),
-          unitNo: '1',
-          unitName: '',
-          clusterId: clusters[0]?.id || '',
-          pages: 0,
-        },
-      ],
-    },
-  ]);
+  const [books, setBooks] = useState(() => {
+    if (isEditMode && initialPlanData.books.length > 0) {
+      return initialPlanData.books.map(b => ({
+        _id: b.id,
+        name: b.name,
+        chapters: (b.planning_deliverables || []).sort((x, y) => x.display_order - y.display_order).map(ch => ({
+          _id: ch.id,
+          unitNo: ch.unit_no || '',
+          unitName: ch.unit_name || '',
+          clusterId: ch.cluster_id || '',
+          pages: ch.pages || 0,
+        })),
+      }));
+    }
+    return [
+      {
+        _id: generateId(),
+        name: '',
+        chapters: [
+          {
+            _id: generateId(),
+            unitNo: '1',
+            unitName: '',
+            clusterId: clusters[0]?.id || '',
+            pages: 0,
+          },
+        ],
+      },
+    ];
+  });
 
   // ── Step 4: Team Members ──────────────────────────────────────────────
-  const [teamMembers, setTeamMembers] = useState([
-    { _id: generateId(), name: '', role: 'Creator', bandwidth: 1, leaves: [] },
-  ]);
+  const [teamMembers, setTeamMembers] = useState(() => {
+    if (isEditMode && initialPlanData.team.length > 0) {
+      return initialPlanData.team.map(m => ({
+        _id: m.id,
+        name: m.name,
+        role: m.role,
+        bandwidth: m.bandwidth || 1,
+        leaves: (m.plan_leaves || []).map(l => l.leave_date),
+      }));
+    }
+    return [
+      { _id: generateId(), name: '', role: 'Creator', bandwidth: 1, leaves: [] },
+    ];
+  });
 
   // ── Step 5: Holidays ──────────────────────────────────────────────────
-  const [holidays, setHolidays] = useState([
-    { _id: generateId(), date: '', description: '' },
-  ]);
+  const [holidays, setHolidays] = useState(() => {
+    if (isEditMode && initialPlanData.holidays.length > 0) {
+      return initialPlanData.holidays.map(h => ({
+        _id: h.id,
+        date: h.holiday_date,
+        description: h.description || '',
+      }));
+    }
+    return [
+      { _id: generateId(), date: '', description: '' },
+    ];
+  });
 
   // ── Navigation ────────────────────────────────────────────────────────
   const handleNext = () => {
@@ -457,21 +531,50 @@ export default function PlanWizard({ projectId, userId, clusters }) {
         clusterLabelsPayload[c.id] = clusterLabels[c.id] || c.name;
       });
 
-      // 1. Create project plan
-      const { data: plan, error: planError } = await supabase
-        .from('project_plans')
-        .insert({
-          project_id: projectId,
-          created_by: userId,
-          name: info.name.trim(),
-          type: info.type,
-          start_date: info.start_date,
-          cluster_labels: clusterLabelsPayload,
-        })
-        .select()
-        .single();
+      // 1. Create or Update project plan
+      let plan;
 
-      if (planError) throw planError;
+      if (isEditMode) {
+        const { data: updatedPlan, error: planError } = await supabase
+          .from('project_plans')
+          .update({
+            name: info.name.trim(),
+            type: info.type,
+            start_date: info.start_date,
+            cluster_labels: clusterLabelsPayload,
+          })
+          .eq('id', initialPlanData.plan.id)
+          .select()
+          .single();
+
+        if (planError) throw planError;
+        plan = updatedPlan;
+
+        // WIPE existing child structures to allow complete clean generation
+        // Due to strictly enforced Foreign Key ON DELETE CASCADE rules in Supabase mappings,
+        // deleting these high-level structures perfectly obliterates all planning tasks securely.
+        await supabase.from('plan_books').delete().eq('plan_id', plan.id);
+        await supabase.from('planning_steps').delete().eq('plan_id', plan.id);
+        await supabase.from('plan_team_members').delete().eq('plan_id', plan.id);
+        await supabase.from('plan_holidays').delete().eq('plan_id', plan.id);
+
+      } else {
+        const { data: newPlan, error: planError } = await supabase
+          .from('project_plans')
+          .insert({
+            project_id: projectId,
+            created_by: userId,
+            name: info.name.trim(),
+            type: info.type,
+            start_date: info.start_date,
+            cluster_labels: clusterLabelsPayload,
+          })
+          .select()
+          .single();
+
+        if (planError) throw planError;
+        plan = newPlan;
+      }
 
       // 2. Insert steps (without dependencies first)
       const savedStepIds = [];
