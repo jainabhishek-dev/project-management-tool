@@ -62,7 +62,7 @@ export default async function ProjectDetailPage({ params }) {
         actions={
           <div style={{ display: 'flex', gap: '8px' }}>
             <DeleteButton type="project" id={project.id} isAdmin={isUserAdmin} onSuccessRedirect="/projects" />
-            <Link href={`/projects/${id}/plans/new`} className="btn btn-secondary">
+            <Link href={`/projects/${id}/plans/new`} className="btn btn-info">
               <Plus size={16} /> New Plan
             </Link>
             <Link href={`/budgets/new?project_id=${project.id}`} className="btn btn-primary">
