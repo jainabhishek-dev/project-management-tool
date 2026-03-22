@@ -64,6 +64,7 @@ export default async function PlanDetailPage({ params }) {
       .from('planning_tasks')
       .select('*')
       .eq('plan_id', planId)
+      .order('id', { ascending: true })
       .range(page * pageSize, (page + 1) * pageSize - 1);
       
     if (taskErr || !pageTasks || pageTasks.length === 0) {
