@@ -174,6 +174,7 @@ function runEventDrivenSchedule(
             role_required: step.role_required,
             dependencies,
             effortDays,
+            customPriority: typeof chapter.execution_priority === 'number' ? chapter.execution_priority : Infinity,
             step_idx: sIdx,       // Higher is better priority (closer to done)
             book_idx: bIdx,       // Lower is better priority (first book)
             chapter_idx: cIdx,    // Lower is better priority (first chapter)
@@ -209,6 +210,7 @@ function runEventDrivenSchedule(
           role_required: step.role_required,
           dependencies,
           effortDays,
+          customPriority: typeof book.execution_priority === 'number' ? book.execution_priority : Infinity,
           step_idx: sIdx,
           book_idx: bIdx,
           chapter_idx: -1,
@@ -308,17 +310,20 @@ function runEventDrivenSchedule(
 
     // Pick the BEST ready task to schedule next
     // Rule 1: Starts earliest in real time (simulating chronological timeline)
-    // Rule 2: Left-to-Right Priority (Higher step index => closer to completion wins)
-    // Rule 3: Top-to-Bottom Priority (Lower book/chapter index wins)
+    // Rule 2: Explicit Custom User Priority (P1 beats P2)
+    // Rule 3: Left-to-Right Priority (Higher step index => closer to completion wins)
+    // Rule 4: Top-to-Bottom Priority (Lower book/chapter index wins)
 
     readyTasks.sort((a, b) => {
        const startA = a.actualStart.valueOf();
        const startB = b.actualStart.valueOf();
        if (startA !== startB) return startA - startB; // Rule 1
 
-       if (a.step_idx !== b.step_idx) return b.step_idx - a.step_idx; // Rule 2
-       if (a.book_idx !== b.book_idx) return a.book_idx - b.book_idx; // Rule 3
-       return a.chapter_idx - b.chapter_idx;                          // Rule 3
+       if (a.customPriority !== b.customPriority) return a.customPriority - b.customPriority; // Rule 2
+
+       if (a.step_idx !== b.step_idx) return b.step_idx - a.step_idx; // Rule 3
+       if (a.book_idx !== b.book_idx) return a.book_idx - b.book_idx; // Rule 4
+       return a.chapter_idx - b.chapter_idx;                          // Rule 4
     });
 
     const winner = readyTasks[0];

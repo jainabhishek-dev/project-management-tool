@@ -10,6 +10,7 @@ const STEPS_WIZARD = [
   { id: 'info',    title: 'Basic Info' },
   { id: 'steps',   title: 'Steps & Norms' },
   { id: 'books',   title: 'Books & Chapters' },
+  { id: 'priority', title: 'Execution Priority' },
   { id: 'team',    title: 'Team Members' },
   { id: 'holidays', title: 'Holidays' },
 ];
@@ -181,12 +182,14 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
       return initialPlanData.books.map(b => ({
         _id: b.id,
         name: b.name,
+        priority: b.execution_priority || null,
         chapters: (b.planning_deliverables || []).sort((x, y) => x.display_order - y.display_order).map(ch => ({
           _id: ch.id,
           unitNo: ch.unit_no || '',
           unitName: ch.unit_name || '',
           clusterId: ch.cluster_id || '',
           pages: ch.pages || 0,
+          priority: ch.execution_priority || null,
         })),
       }));
     }
@@ -194,6 +197,7 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
       {
         _id: generateId(),
         name: '',
+        priority: null,
         chapters: [
           {
             _id: generateId(),
@@ -201,13 +205,66 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
             unitName: '',
             clusterId: clusters[0]?.id || '',
             pages: 0,
+            priority: null,
           },
         ],
       },
     ];
   });
 
-  // ── Step 4: Team Members ──────────────────────────────────────────────
+  // Flat structured chapters sorted intrinsically by currently stored priority OR naturally by fallback flow
+  const orderedChapters = [].concat(...books.map(b => 
+    b.chapters.map(ch => ({ ...ch, bookId: b._id, bookName: b.name }))
+  )).sort((a, b) => (a.priority || Infinity) - (b.priority || Infinity));
+
+  const [draggedPrioIdx, setDraggedPrioIdx] = useState(null);
+  const [dragOverPrioIdx, setDragOverPrioIdx] = useState(null);
+
+  const handleDragStartPrio = (e, index) => {
+    setDraggedPrioIdx(index);
+    e.dataTransfer.setData('text/plain', index.toString());
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOverPrio = (e, index) => {
+    e.preventDefault();
+    if (dragOverPrioIdx !== index) setDragOverPrioIdx(index);
+  };
+
+  const handleDropPrio = (e, targetIdx) => {
+    e.preventDefault();
+    if (draggedPrioIdx === null || draggedPrioIdx === targetIdx) {
+      setDraggedPrioIdx(null);
+      setDragOverPrioIdx(null);
+      return;
+    }
+
+    const flat = [...orderedChapters];
+    const draggedItem = flat[draggedPrioIdx];
+    flat.splice(draggedPrioIdx, 1);
+    flat.splice(targetIdx, 0, draggedItem);
+
+    // Apply strict priority 1 through N exactly
+    const updatedBooks = [...books];
+    flat.forEach((flatCh, sortedIndex) => {
+      const bookObj = updatedBooks.find(b => b._id === flatCh.bookId);
+      if (bookObj) {
+        const chapterRef = bookObj.chapters.find(c => c._id === flatCh._id);
+        if (chapterRef) chapterRef.priority = sortedIndex + 1;
+      }
+    });
+
+    setBooks(updatedBooks);
+    setDraggedPrioIdx(null);
+    setDragOverPrioIdx(null);
+  };
+
+  const handleDragEndPrio = () => {
+    setDraggedPrioIdx(null);
+    setDragOverPrioIdx(null);
+  };
+
+  // ── Step 5: Team Members ──────────────────────────────────────────────
   const [teamMembers, setTeamMembers] = useState(() => {
     if (isEditMode && initialPlanData.team.length > 0) {
       return initialPlanData.team.map(m => ({
@@ -643,6 +700,7 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
             plan_id: plan.id,
             name: book.name.trim(),
             display_order: bIdx,
+            execution_priority: book.priority || null,
           })
           .select()
           .single();
@@ -657,6 +715,7 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
           cluster_id: ch.clusterId,
           pages: isPrint ? parseInt(ch.pages) || 0 : 0,
           display_order: chIdx,
+          execution_priority: ch.priority || null,
         }));
 
         if (chaptersInsert.length > 0) {
@@ -997,8 +1056,55 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
           </div>
         )}
 
-        {/* ── STEP 4: Team Members ───────────────────────────────────────── */}
+        {/* ── STEP 4: Execution Priority ───────────────────────────────────────── */}
         {currentStepIndex === 3 && (
+          <div className="animate-fade-in">
+            <p className={styles.stepDesc}>
+              Drag and drop chapters to force their chronological execution priority.
+              Items at the top of the list will steal scheduling bandwidth natively to execute first!
+            </p>
+            <div className={styles.tableWrapper}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: 100 }}>Priority (P)</th>
+                    <th style={{ minWidth: 200 }}>Book Name</th>
+                    <th style={{ minWidth: 200 }}>Unit No. & Name</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orderedChapters.map((ch, idx) => (
+                    <tr
+                      key={ch._id}
+                      draggable
+                      onDragStart={(e) => handleDragStartPrio(e, idx)}
+                      onDragOver={(e) => handleDragOverPrio(e, idx)}
+                      onDrop={(e) => handleDropPrio(e, idx)}
+                      onDragEnd={handleDragEndPrio}
+                      style={{
+                        borderTop: dragOverPrioIdx === idx && draggedPrioIdx !== idx ? '2px solid var(--color-primary)' : 'none',
+                      }}
+                    >
+                      <td style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ cursor: 'grab', paddingRight: '4px' }}>
+                          <GripVertical size={16} color="var(--color-text-muted)" />
+                        </div>
+                        <span style={{ fontWeight: 600, color: 'var(--color-text)' }}>{idx + 1}</span>
+                      </td>
+                      <td style={{ color: 'var(--color-text-muted)' }}>{ch.bookName}</td>
+                      <td style={{ fontWeight: 500 }}>
+                         {ch.unitNo ? `${ch.unitNo} - ` : ''}{ch.unitName}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ── STEP 5: Team Members ───────────────────────────────────────── */}
+        {currentStepIndex === 4 && (
           <div className="animate-fade-in">
             <p className={styles.stepDesc}>
               Add team members for this plan. Bandwidth is their daily availability
@@ -1071,8 +1177,8 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
           </div>
         )}
 
-        {/* ── STEP 5: Holidays ──────────────────────────────────────────── */}
-        {currentStepIndex === 4 && (
+        {/* ── STEP 6: Holidays ──────────────────────────────────────────── */}
+        {currentStepIndex === 5 && (
           <div className="animate-fade-in">
             <p className={styles.stepDesc}>
               Add public holidays for this plan window. These dates are blocked for
