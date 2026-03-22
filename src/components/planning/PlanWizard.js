@@ -460,6 +460,15 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
        const rawUnit = row['Unit']?.toString().toLowerCase().trim() || '';
        const isBook = rawUnit === 'book';
 
+       let extractedBookNorm = 0;
+       if (isBook) {
+           extractedBookNorm = parseFloat(row['Book Norm']);
+           if (isNaN(extractedBookNorm) && clusters.length > 0) {
+               const firstClusterName = clusterLabels[clusters[0].id] || clusters[0].name;
+               extractedBookNorm = parseFloat(row[firstClusterName]) || 0;
+           }
+       }
+
        return {
           _id: generateId(),
           name: stepName,
@@ -468,7 +477,7 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
           dependsOnName: row['Depends On (Step Name)'] || '',
           unitOfCalc: isBook ? 'Book' : 'Chapter / Unit',
           normPages: parseFloat(row['Ref Pages (Optional)']) || parseFloat(row['Ref Pages']) || 0,
-          bookNorm: isBook ? parseFloat(row['Book Norm']) || 0 : 0,
+          bookNorm: extractedBookNorm || 0,
           norms: mappedNorms
        };
     }).filter(s => s !== null);
