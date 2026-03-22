@@ -69,7 +69,6 @@ function assignChapterRoles(books, steps, teamMembers) {
         if (candidates.length === 0) continue;
 
         const winner = [...candidates].sort((a, b) => {
-          if (b.bandwidth !== a.bandwidth) return b.bandwidth - a.bandwidth;
           return memberEstLoad[a.id] - memberEstLoad[b.id];
         })[0];
 
@@ -116,10 +115,12 @@ function runEventDrivenSchedule(
   
   const planStartDate = parseISO(plan.start_date);
   
-  // Track availability
-  const memberFreeFrom = {};
+  // Track sub-day fractional availability
+  const memberFreeDate = {};
+  const memberCapacityLeft = {};
   teamMembers.forEach((m) => {
-    memberFreeFrom[m.id] = new Date(planStartDate);
+    memberFreeDate[m.id] = new Date(planStartDate);
+    memberCapacityLeft[m.id] = 1.0;
   });
 
   // Track task ends to resolve dependencies
@@ -262,8 +263,10 @@ function runEventDrivenSchedule(
            const candidates = teamMembers.filter(m => m.role === task.role_required);
            if (candidates.length > 0) {
               bestMember = candidates.sort((a, b) => {
-                 const aStart = Math.max(earliestStart.valueOf(), memberFreeFrom[a.id].valueOf());
-                 const bStart = Math.max(earliestStart.valueOf(), memberFreeFrom[b.id].valueOf());
+                 const mFreeDate = new Date(memberFreeDate[a.id]);
+                 const nFreeDate = new Date(memberFreeDate[b.id]);
+                 const aStart = Math.max(earliestStart.valueOf(), mFreeDate.valueOf());
+                 const bStart = Math.max(earliestStart.valueOf(), nFreeDate.valueOf());
                  if (aStart !== bStart) return aStart - bStart;
                  return b.bandwidth - a.bandwidth; // Highest bandwidth wins tie
               })[0];
@@ -274,8 +277,8 @@ function runEventDrivenSchedule(
 
       // Calculate actual start including member's free timeline
       if (task.assignedMember && !task.assignedMember._missing) {
-         const mFree = memberFreeFrom[task.assignedMember.id];
-         task.actualStart = task.earliestTheoreticalStart > mFree ? task.earliestTheoreticalStart : mFree;
+         const mFreeDate = memberFreeDate[task.assignedMember.id];
+         task.actualStart = task.earliestTheoreticalStart > mFreeDate ? task.earliestTheoreticalStart : mFreeDate;
       } else {
          task.actualStart = task.earliestTheoreticalStart; // Unassigned falls back to earliest
       }
@@ -299,8 +302,8 @@ function runEventDrivenSchedule(
     const winner = readyTasks[0];
 
     // Compute Exact Dates
-    let finalStart = winner.actualStart;
-    let finalEndStr;
+    let finalStart;
+    let finalEnd;
 
     const blocked = new Set(globalHolidays);
     if (winner.assignedMember && !winner.assignedMember._missing) {
@@ -308,29 +311,71 @@ function runEventDrivenSchedule(
        mLeaves.forEach(l => blocked.add(l));
     }
 
-    // Skip non-working days for start
-    while (isNonWorkingDay(finalStart, blocked)) {
-      finalStart = addDays(finalStart, 1);
-    }
-
     const manualOverride = manualOverrides[winner.id];
-    let finalEnd;
+    let finalEndStr;
 
     if (manualOverride) {
       finalEnd = parseISO(manualOverride);
       finalEndStr = manualOverride;
+      finalStart = winner.actualStart; 
+      
+      // Update member tracking conceptually
+      if (winner.assignedMember && !winner.assignedMember._missing) {
+         memberFreeDate[winner.assignedMember.id] = finalEnd;
+         memberCapacityLeft[winner.assignedMember.id] = 0.0; 
+      }
     } else {
       const bandwidth = winner.assignedMember ? winner.assignedMember.bandwidth : 1;
       const effectiveDays = winner.effortDays > 0 ? winner.effortDays / (bandwidth || 1) : 1;
-      finalEnd = addBusinessDaysWithHolidays(finalStart, effectiveDays, blocked);
+
+      if (!winner.assignedMember || winner.assignedMember._missing) {
+        finalStart = winner.earliestTheoreticalStart;
+        while (isNonWorkingDay(finalStart, blocked)) finalStart = addDays(finalStart, 1);
+        finalEnd = addBusinessDaysWithHolidays(finalStart, Math.max(1, effectiveDays), blocked);
+      } else {
+        const mId = winner.assignedMember.id;
+        let mFree = new Date(memberFreeDate[mId]);
+        let mCap = memberCapacityLeft[mId];
+
+        const earliestStr = format(winner.earliestTheoreticalStart, 'yyyy-MM-dd');
+        while (format(mFree, 'yyyy-MM-dd') < earliestStr || isNonWorkingDay(mFree, blocked)) {
+          mFree = addDays(mFree, 1);
+          mCap = 1.0; 
+        }
+
+        finalStart = new Date(mFree);
+
+        if (effectiveDays <= mCap) {
+          mCap -= effectiveDays;
+          finalEnd = new Date(mFree);
+        } else {
+          let overflow = effectiveDays - mCap;
+          
+          do {
+             mFree = addDays(mFree, 1);
+             while (isNonWorkingDay(mFree, blocked)) mFree = addDays(mFree, 1);
+          } while (false); 
+
+          while (overflow >= 1.0) {
+             mFree = addDays(mFree, 1);
+             while (isNonWorkingDay(mFree, blocked)) mFree = addDays(mFree, 1);
+             overflow -= 1.0;
+          }
+          
+          mCap = 1.0 - overflow;
+          if (mCap >= 1.0) mCap = 0; // if overflow was practically 0
+          
+          finalEnd = new Date(mFree);
+        }
+
+        memberFreeDate[mId] = new Date(mFree);
+        memberCapacityLeft[mId] = mCap;
+      }
       finalEndStr = format(finalEnd, 'yyyy-MM-dd');
     }
 
     // Bookkeeping
     taskEndDates[winner.id] = finalEnd;
-    if (winner.assignedMember && !winner.assignedMember._missing) {
-       memberFreeFrom[winner.assignedMember.id] = addDays(finalEnd, 1);
-    }
     winner.isDone = true;
 
     // Build the DB Task Object
