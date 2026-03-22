@@ -110,6 +110,7 @@ function runEventDrivenSchedule(
   existingTasksMap = {}
 ) {
   const globalHolidays = holidaySet || new Set();
+  const blockedSetGlobal = new Set(globalHolidays);
   const sortedSteps = [...(plan.steps || [])].sort((a, b) => a.display_order - b.display_order);
   const sortedBooks = [...books].sort((a, b) => a.display_order - b.display_order);
   
@@ -125,6 +126,7 @@ function runEventDrivenSchedule(
 
   // Track task ends to resolve dependencies
   const taskEndDates = {}; // taskId → Date
+  const taskEndRowEffort = {}; // taskId → Number (0 to 1, representing daily effort consumed on the finalEnd date)
 
   // 1. Generate all task nodes
   const nodes = [];
@@ -241,16 +243,36 @@ function runEventDrivenSchedule(
     // Evaluate Earliest Possible Start for all Ready tasks based on Predecessors ONLY
     readyTasks.forEach(task => {
       let earliestStart = new Date(planStartDate);
+      let inheritedEffort = 0;
+
       task.dependencies.forEach(depId => {
-        const depEnd = taskEndDates[depId];
-        const candidateStart = addDays(depEnd, 1);
-        if (candidateStart > earliestStart) earliestStart = candidateStart;
+        const depEnd = new Date(taskEndDates[depId]);
+        const depRowEffort = taskEndRowEffort[depId] || 0;
+
+        let candidateStart = new Date(depEnd);
+        let candidateInheritedEffort = depRowEffort;
+
+        // User fractional boundary rule: if row hit >= 0.75 mandays on that finish date, push NEXT to fresh morning
+        if (depRowEffort >= 0.75) {
+          candidateStart = addDays(candidateStart, 1);
+          while (isNonWorkingDay(candidateStart, blockedSetGlobal)) candidateStart = addDays(candidateStart, 1);
+          candidateInheritedEffort = 0;
+        }
+
+        if (candidateStart > earliestStart) {
+          earliestStart = candidateStart;
+          inheritedEffort = candidateInheritedEffort;
+        } else if (candidateStart.valueOf() === earliestStart.valueOf()) {
+          inheritedEffort = Math.max(inheritedEffort, candidateInheritedEffort);
+        }
       });
 
       if (task.bufferDays > 0) {
         earliestStart = addBusinessDaysWithHolidays(earliestStart, task.bufferDays, globalHolidays);
+        inheritedEffort = 0;
       }
       task.earliestTheoreticalStart = earliestStart;
+      task.inheritedRowEffort = inheritedEffort;
 
       // Assign dynamic member for Book tasks now based on who avoids delays
       if (task.type === 'book' && !task.assignedMember) {
@@ -324,6 +346,7 @@ function runEventDrivenSchedule(
          memberFreeDate[winner.assignedMember.id] = finalEnd;
          memberCapacityLeft[winner.assignedMember.id] = 0.0; 
       }
+      finalEndRowEffort = Math.min(1.0, winner.effortDays); // fallback
     } else {
       const bandwidth = winner.assignedMember ? winner.assignedMember.bandwidth : 1;
       const effectiveDays = winner.effortDays > 0 ? winner.effortDays / (bandwidth || 1) : 1;
@@ -331,7 +354,27 @@ function runEventDrivenSchedule(
       if (!winner.assignedMember || winner.assignedMember._missing) {
         finalStart = winner.earliestTheoreticalStart;
         while (isNonWorkingDay(finalStart, blocked)) finalStart = addDays(finalStart, 1);
-        finalEnd = addBusinessDaysWithHolidays(finalStart, Math.max(1, effectiveDays), blocked);
+        
+        let totalEffortAvailableOnStartDay = 1.0 - winner.inheritedRowEffort;
+
+        if (effectiveDays <= totalEffortAvailableOnStartDay) {
+          finalEnd = new Date(finalStart);
+          finalEndRowEffort = winner.inheritedRowEffort + effectiveDays;
+        } else {
+          let overflow = effectiveDays - totalEffortAvailableOnStartDay;
+          finalEnd = new Date(finalStart);
+          do {
+             finalEnd = addDays(finalEnd, 1);
+             while (isNonWorkingDay(finalEnd, blocked)) finalEnd = addDays(finalEnd, 1);
+          } while (false);
+
+          while (overflow > 1.0) {
+             finalEnd = addDays(finalEnd, 1);
+             while (isNonWorkingDay(finalEnd, blocked)) finalEnd = addDays(finalEnd, 1);
+             overflow -= 1.0;
+          }
+          finalEndRowEffort = overflow === 0 ? 1.0 : overflow;
+        }
       } else {
         const mId = winner.assignedMember.id;
         let mFree = new Date(memberFreeDate[mId]);
@@ -345,9 +388,15 @@ function runEventDrivenSchedule(
 
         finalStart = new Date(mFree);
 
+        let currentDayRowEffort = 0;
+        if (format(finalStart, 'yyyy-MM-dd') === earliestStr) {
+            currentDayRowEffort = winner.inheritedRowEffort;
+        }
+
         if (effectiveDays <= mCap) {
           mCap -= effectiveDays;
           finalEnd = new Date(mFree);
+          finalEndRowEffort = currentDayRowEffort + effectiveDays;
         } else {
           let overflow = effectiveDays - mCap;
           
@@ -356,16 +405,17 @@ function runEventDrivenSchedule(
              while (isNonWorkingDay(mFree, blocked)) mFree = addDays(mFree, 1);
           } while (false); 
 
-          while (overflow >= 1.0) {
+          while (overflow > 1.0) {
              mFree = addDays(mFree, 1);
              while (isNonWorkingDay(mFree, blocked)) mFree = addDays(mFree, 1);
              overflow -= 1.0;
           }
           
           mCap = 1.0 - overflow;
-          if (mCap >= 1.0) mCap = 0; // if overflow was practically 0
+          if (mCap >= 1.0) mCap = 0; 
           
           finalEnd = new Date(mFree);
+          finalEndRowEffort = overflow === 0 ? 1.0 : overflow;
         }
 
         memberFreeDate[mId] = new Date(mFree);
@@ -376,6 +426,7 @@ function runEventDrivenSchedule(
 
     // Bookkeeping
     taskEndDates[winner.id] = finalEnd;
+    taskEndRowEffort[winner.id] = finalEndRowEffort;
     winner.isDone = true;
 
     // Build the DB Task Object
