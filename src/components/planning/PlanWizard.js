@@ -3,8 +3,9 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
-import { Plus, Trash2, Check, ChevronRight, ChevronLeft, BookOpen, GripVertical } from 'lucide-react';
+import { Plus, Trash2, Check, ChevronRight, ChevronLeft, BookOpen, GripVertical, Calendar as CalendarIcon } from 'lucide-react';
 import BulkUploadButton from './BulkUploadButton';
+import DatePicker from 'react-multi-date-picker';
 import styles from './PlanWizard.module.css';
 
 const STEPS_WIZARD = [
@@ -33,6 +34,23 @@ const UNIT_OPTIONS = ['Chapter / Unit', 'Book'];
 
 function generateId() {
   return Math.random().toString(36).slice(2, 10);
+}
+
+function parseFuzzyDate(dateStr) {
+  if (!dateStr) return null;
+  const str = String(dateStr).trim();
+  if (!str) return null;
+
+  let d = new Date(str);
+  
+  if (isNaN(d.getTime())) {
+     // Give it one more try forcefully appending current year
+     d = new Date(`${str} ${new Date().getFullYear()}`);
+  }
+
+  if (isNaN(d.getTime())) return null;
+
+  return d.toISOString().split('T')[0];
 }
 
 export default function PlanWizard({ projectId, userId, clusters, initialPlanData }) {
@@ -667,6 +685,9 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
   const handleBulkUploadTeam = (parsedData) => {
     if (!parsedData || parsedData.length === 0) return;
     
+    let hasCorruptDates = false;
+    let corruptedString = "";
+
     const newMembers = parsedData.map(row => {
        const name = row['Name']?.trim();
        if (!name) return null;
@@ -674,7 +695,16 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
        let leaves = [];
        const leaveStr = row['Leaves'];
        if (leaveStr) {
-          leaves = leaveStr.split(',').map(s => s.trim()).filter(s => s).sort();
+          const splitStrings = leaveStr.split(',').map(s => s.trim()).filter(s => s);
+          splitStrings.forEach(s => {
+             const cleanedDate = parseFuzzyDate(s);
+             if (cleanedDate) {
+                leaves.push(cleanedDate);
+             } else {
+                hasCorruptDates = true;
+                if (!corruptedString) corruptedString = s;
+             }
+          });
        }
 
        return {
@@ -682,9 +712,14 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
           name,
           role: row['Role'] || ROLE_OPTIONS[0],
           bandwidth: parseFloat(row['Bandwidth']) || 1,
-          leaves
+          leaves: leaves.sort()
        };
     }).filter(m => m !== null);
+
+    if (hasCorruptDates) {
+       alert(`Upload Rejected: Invalid date format detected ("${corruptedString}"). Please use a readable date format like 'Mar 1', '10-Mar-2026', or 'YYYY-MM-DD'.`);
+       return;
+    }
 
     if (newMembers.length > 0) setTeamMembers(newMembers);
   };
@@ -694,26 +729,38 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
   const handleBulkUploadHolidays = (parsedData) => {
     if (!parsedData || parsedData.length === 0) return;
     
+    let hasCorruptDates = false;
+    let corruptedString = "";
+
     const newHols = parsedData.map(row => {
        let dateStr = row['Date'];
-       if (dateStr instanceof Date) {
-          dateStr = dateStr.toISOString().split('T')[0];
-       } else if (typeof dateStr === 'string' && dateStr.trim()) {
-          // Normalize various formats or forward as string natively
-          dateStr = dateStr.trim().replace(/\//g, '-'); 
-       } else if (typeof dateStr === 'number') {
-           // Fallback for SheetJS if cellDates fails
+       
+       // Handle raw excel number
+       if (typeof dateStr === 'number') {
            const d = new Date(Math.round((dateStr - 25569) * 86400 * 1000));
            dateStr = d.toISOString().split('T')[0];
        }
-       if (!dateStr) return null;
+
+       if (!dateStr || String(dateStr).trim() === '') return null; // Safe
+
+       const cleanedDate = parseFuzzyDate(dateStr);
+       if (!cleanedDate) {
+           hasCorruptDates = true;
+           if (!corruptedString) corruptedString = String(dateStr);
+           return null;
+       }
 
        return {
           _id: generateId(),
-          date: dateStr,
+          date: cleanedDate,
           description: row['Description']?.toString().trim() || ''
        };
     }).filter(h => h !== null);
+
+    if (hasCorruptDates) {
+       alert(`Upload Rejected: Invalid holiday date format detected ("${corruptedString}"). Please use a readable date format.`);
+       return;
+    }
 
     if (newHols.length > 0) setHolidays(newHols);
   };
@@ -1366,11 +1413,37 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
                                 onClick={() => removeLeave(member._id, date)}>×</button>
                             </span>
                           ))}
-                          <input type="date" className={styles.leaveInput}
-                            title="Add a leave date"
-                            onChange={(e) => {
-                              if (e.target.value) { addLeave(member._id, e.target.value); e.target.value = ''; }
-                            }} />
+                          <DatePicker
+                            multiple
+                            value={member.leaves}
+                            onChange={(dateObjects) => {
+                               if (!dateObjects) {
+                                  updateTeamMember(member._id, 'leaves', []);
+                                  return;
+                               }
+                               const formattedDates = dateObjects.map(d => d.format('YYYY-MM-DD')).sort();
+                               updateTeamMember(member._id, 'leaves', formattedDates);
+                            }}
+                            render={(value, openCalendar) => (
+                              <button 
+                                className={styles.leaveInput} 
+                                onClick={openCalendar} 
+                                title="Pick multiple leave dates simultaneously"
+                                style={{
+                                  border: '1px dashed var(--color-border)',
+                                  borderRadius: '4px',
+                                  padding: '2px 8px',
+                                  background: 'transparent',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  color: 'var(--color-primary)'
+                                }}
+                              >
+                                 <Plus size={14} /> Add
+                              </button>
+                            )}
+                          />
                         </div>
                       </td>
                       <td>
