@@ -219,7 +219,7 @@ function runEventDrivenSchedule(
 
   // 2. Event loop until all nodes are processed
   const tasksOutput = [];
-  const MAX_LOOPS = 5000;
+  const MAX_LOOPS = 500000;
   let loops = 0;
 
   while (nodes.some(n => !n.isDone) && loops < MAX_LOOPS) {
