@@ -9,30 +9,26 @@ export default async function PlanDetailPage({ params }) {
   const { id, planId } = await params;
   const supabase = await getSupabaseServerClient();
 
-  // Fetch all required data in parallel
+  // 1. Fetch Core Plan
+  const { data: plan } = await supabase
+    .from('project_plans')
+    .select(`
+      *,
+      project:project_id ( project_name ),
+      steps:planning_steps ( *, norms:planning_norms ( * ) )
+    `)
+    .eq('id', planId)
+    .single();
+
+  if (!plan) notFound();
+
+  // 2. Fetch dependencies
   const [
-    { data: plan },
-    { data: existingTasks },
     { data: teamMembers },
     { data: holidays },
     { data: booksRaw },
     { data: deliverables },
   ] = await Promise.all([
-    supabase
-      .from('project_plans')
-      .select(`
-        *,
-        project:project_id ( project_name ),
-        steps:planning_steps ( *, norms:planning_norms ( * ) )
-      `)
-      .eq('id', planId)
-      .single(),
-
-    supabase
-      .from('planning_tasks')
-      .select('*')
-      .eq('plan_id', planId),
-
     supabase
       .from('plan_team_members')
       .select('*, leaves:plan_leaves(*)')
@@ -57,6 +53,29 @@ export default async function PlanDetailPage({ params }) {
       .order('display_order', { ascending: true }),
   ]);
 
+  // 3. Iterative Fetch for Tasks (Bypass 1,000 row hard-limit for large plans)
+  let existingTasks = [];
+  let page = 0;
+  const pageSize = 1000;
+  let hasMoreTasks = true;
+
+  while (hasMoreTasks) {
+    const { data: pageTasks, error: taskErr } = await supabase
+      .from('planning_tasks')
+      .select('*')
+      .eq('plan_id', planId)
+      .range(page * pageSize, (page + 1) * pageSize - 1);
+      
+    if (taskErr || !pageTasks || pageTasks.length === 0) {
+      hasMoreTasks = false;
+    } else {
+      existingTasks.push(...pageTasks);
+      if (pageTasks.length < pageSize) hasMoreTasks = false;
+      else page++;
+    }
+  }
+
+  // 4. Validate or Create Tasks
   if (!plan) notFound();
 
   // Group chapters under their books

@@ -370,7 +370,7 @@ export default function ExecutionGrid({
                           // No task on chapter level for book steps (handled in the Book header row)
                           return (
                             <td key={step.id} className={`${styles.stepCell} ${styles.stepCellDisabled}`}>
-                              <span className={styles.noTask}></span>
+                              <span className={styles.noTask}>—</span>
                             </td>
                           );
                         }
