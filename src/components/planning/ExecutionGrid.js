@@ -78,13 +78,61 @@ export default function ExecutionGrid({
 
   // ── Status update ───────────────────────────────────────────────────────
   async function handleStatusChange(taskId, newStatus) {
+    if (newStatus !== 'Done') {
+        setActiveTasks((prev) =>
+          prev.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t))
+        );
+        await supabase
+          .from('planning_tasks')
+          .update({ status: newStatus })
+          .eq('id', taskId);
+        return;
+    }
+
+    // --- Recursive "Done" Cascade (Backward Topological Traversal) ---
+    // User marked a task as Done. Trace backwards mapping all predecessors up the chain if they are not already Done!
+    let tasksToUpdate = [taskId];
+    const initialTask = activeTasks.find(t => t.id === taskId);
+    
+    if (initialTask) {
+        let currentStepId = initialTask.step_id;
+        while (currentStepId) {
+            const currentStepDef = steps.find(s => s.id === currentStepId);
+            if (!currentStepDef || !currentStepDef.parallel_dependency_id) break;
+            
+            const predStepId = currentStepDef.parallel_dependency_id;
+            const predStepDef = steps.find(s => s.id === predStepId);
+            if (!predStepDef) break;
+            
+            let predTask = null;
+            if (predStepDef.unit_of_calculation === 'Book') {
+               predTask = activeTasks.find(t => t.step_id === predStepId && t.book_id === initialTask.book_id && !t.deliverable_id);
+            } else {
+               predTask = activeTasks.find(t => t.step_id === predStepId && t.deliverable_id === initialTask.deliverable_id);
+               // If initialTask was a Book task, it does not have a deliverable_id. A Chapter step cannot explicitly precede a Book step natively in this system without causing branching splits.
+            }
+            
+            if (predTask) {
+               if (predTask.status !== 'Done') {
+                   tasksToUpdate.push(predTask.id);
+                   currentStepId = predStepId; 
+               } else {
+                   break; // Predecessor already done, stop recursing!
+               }
+            } else {
+               break; 
+            }
+        }
+    }
+
     setActiveTasks((prev) =>
-      prev.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t))
+      prev.map((t) => (tasksToUpdate.includes(t.id) ? { ...t, status: newStatus } : t))
     );
-    await supabase
-      .from('planning_tasks')
-      .update({ status: newStatus })
-      .eq('id', taskId);
+
+    const supabasePromises = tasksToUpdate.map(idToMark => 
+        supabase.from('planning_tasks').update({ status: newStatus }).eq('id', idToMark)
+    );
+    await Promise.all(supabasePromises);
   }
 
   // ── End-date change — full re-schedule cascade ──────────────────────────
