@@ -439,15 +439,18 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
           mappedNorms[c.id] = parseFloat(row[colName]) || 0;
        });
 
+       const rawUnit = row['Unit']?.toString().toLowerCase().trim() || '';
+       const isBook = rawUnit === 'book';
+
        return {
           _id: generateId(),
           name: stepName,
           role: row['Role'] || ROLE_OPTIONS[0],
           buffer: parseFloat(row['Buffer Days']) || 0,
           dependsOnName: row['Depends On (Step Name)'] || '',
-          unitOfCalc: row['Unit'] || 'Chapter / Unit',
+          unitOfCalc: isBook ? 'Book' : 'Chapter / Unit',
           normPages: parseFloat(row['Ref Pages (Optional)']) || parseFloat(row['Ref Pages']) || 0,
-          bookNorm: 0, // Book steps typically dictate effort over standard norms, handled globally
+          bookNorm: isBook ? parseFloat(row['Book Norm']) || 0 : 0,
           norms: mappedNorms
        };
     }).filter(s => s !== null);
