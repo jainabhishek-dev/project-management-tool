@@ -326,6 +326,7 @@ function runEventDrivenSchedule(
     // Compute Exact Dates
     let finalStart;
     let finalEnd;
+    let finalEndRowEffort = 0;
 
     const blocked = new Set(globalHolidays);
     if (winner.assignedMember && !winner.assignedMember._missing) {
