@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { Plus, Trash2, Check, ChevronRight, ChevronLeft, BookOpen, GripVertical } from 'lucide-react';
+import BulkUploadButton from './BulkUploadButton';
 import styles from './PlanWizard.module.css';
 
 const STEPS_WIZARD = [
@@ -421,6 +422,120 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
     setPlanSteps(newSteps);
   };
 
+  const stepTemplateHeaders = [
+    'Step Name', 'Role', 'Buffer Days', 'Depends On (Step Name)', 'Unit', 'Ref Pages (Optional)',
+    ...clusters.map(c => clusterLabels[c.id] || c.name)
+  ];
+
+  const handleBulkUploadSteps = (parsedData) => {
+    if (!parsedData || parsedData.length === 0) return;
+    const newSteps = parsedData.map((row) => {
+       const stepName = row['Step Name'];
+       if (!stepName) return null;
+       
+       const mappedNorms = {};
+       clusters.forEach(c => {
+          const colName = clusterLabels[c.id] || c.name;
+          mappedNorms[c.id] = parseFloat(row[colName]) || 0;
+       });
+
+       return {
+          _id: generateId(),
+          name: stepName,
+          role: row['Role'] || ROLE_OPTIONS[0],
+          buffer: parseFloat(row['Buffer Days']) || 0,
+          dependsOnName: row['Depends On (Step Name)'] || '',
+          unitOfCalc: row['Unit'] || 'Chapter / Unit',
+          normPages: parseFloat(row['Ref Pages (Optional)']) || parseFloat(row['Ref Pages']) || 0,
+          bookNorm: 0, // Book steps typically dictate effort over standard norms, handled globally
+          norms: mappedNorms
+       };
+    }).filter(s => s !== null);
+
+    const finalSteps = newSteps.map((s, idx) => {
+       let depIdx = null;
+       if (s.dependsOnName) {
+         depIdx = newSteps.findIndex(x => x.name.trim().toLowerCase() === s.dependsOnName.trim().toLowerCase());
+         if (depIdx === -1 || depIdx === idx) depIdx = null;
+       }
+       return { ...s, dependsOnIndex: depIdx };
+    });
+
+    if (finalSteps.length > 0) setPlanSteps(finalSteps);
+  };
+
+  const bookTemplateHeaders = [
+    'Book Name', 'Unit No', 'Unit Name', 'Chapter Cluster', 'External Pages (Optional)'
+  ];
+
+  const handleBulkUploadBooks = (parsedData) => {
+    if (!parsedData || parsedData.length === 0) return;
+    
+    // Convert flat rows to deeply nested Book > Chapters structure
+    const newBooksMap = new Map();
+    const bookOrder = [];
+
+    parsedData.forEach(row => {
+       const bookName = row['Book Name']?.trim();
+       if (!bookName) return;
+
+       if (!newBooksMap.has(bookName)) {
+          newBooksMap.set(bookName, {
+            _id: generateId(),
+            name: bookName,
+            priority: null, // Wipe custom priority since array is new
+            chapters: []
+          });
+          bookOrder.push(bookName);
+       }
+
+       const book = newBooksMap.get(bookName);
+       
+       const clusterName = row['Chapter Cluster']?.trim()?.toLowerCase() || '';
+       const matchedCluster = clusters.find(c => 
+          c.name.toLowerCase() === clusterName || 
+          (clusterLabels[c.id] || '').toLowerCase() === clusterName ||
+          c.id === row['Chapter Cluster']
+       );
+
+       book.chapters.push({
+          _id: generateId(),
+          unitNo: row['Unit No']?.toString() || '',
+          unitName: row['Unit Name']?.toString() || '',
+          clusterId: matchedCluster ? matchedCluster.id : (clusters[0]?.id || ''),
+          pages: parseInt(row['External Pages (Optional)']) || parseInt(row['External Pages']) || 0,
+          priority: null // Resets custom priority array
+       });
+    });
+
+    const finalBooks = bookOrder.map(name => newBooksMap.get(name));
+    if (finalBooks.length > 0) {
+      setBooks(finalBooks);
+    }
+  };
+
+  const priorityTemplateHeaders = ['Book Name', 'Unit Name', 'Priority Number'];
+  
+  const handleBulkUploadPriority = (parsedData) => {
+    if (!parsedData || parsedData.length === 0) return;
+    
+    const updatedBooks = [...books];
+    parsedData.forEach(row => {
+       const bookName = row['Book Name']?.trim();
+       const unitName = row['Unit Name']?.trim();
+       const priority = parseInt(row['Priority Number']);
+       
+       if (!bookName || !unitName || isNaN(priority)) return;
+       
+       const book = updatedBooks.find(b => b.name === bookName);
+       if (book) {
+          const chapter = book.chapters.find(c => c.unitName.trim() === unitName);
+          if (chapter) chapter.priority = priority;
+       }
+    });
+    setBooks(updatedBooks);
+  };
+
   // ── Step 3 helpers — Books ────────────────────────────────────────────
   const addBook = () => {
     setBooks([
@@ -428,8 +543,16 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
       {
         _id: generateId(),
         name: '',
+        priority: null,
         chapters: [
-          { _id: generateId(), unitNo: '1', unitName: '', clusterId: clusters[0]?.id || '', pages: 0 },
+          {
+            _id: generateId(),
+            unitNo: '1',
+            unitName: '',
+            clusterId: clusters[0]?.id || '',
+            pages: 0,
+            priority: null,
+          },
         ],
       },
     ]);
@@ -447,17 +570,24 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
   // ── Step 3 helpers — Chapters ─────────────────────────────────────────
   const addChapter = (bookId) => {
     setBooks(
-      books.map((b) =>
-        b._id !== bookId
-          ? b
-          : {
-              ...b,
-              chapters: [
-                ...b.chapters,
-                { _id: generateId(), unitNo: '', unitName: '', clusterId: clusters[0]?.id || '', pages: 0 },
-              ],
-            }
-      )
+      books.map((b) => {
+        if (b._id !== bookId) return b;
+        const lastNo = b.chapters.length > 0 ? parseInt(b.chapters[b.chapters.length - 1].unitNo) : 0;
+        return {
+          ...b,
+          chapters: [
+            ...b.chapters,
+            {
+              _id: generateId(),
+              unitNo: isNaN(lastNo) ? '' : (lastNo + 1).toString(),
+              unitName: '',
+              clusterId: clusters[0]?.id || '',
+              pages: 0,
+              priority: null,
+            },
+          ],
+        };
+      })
     );
   };
 
@@ -466,23 +596,22 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
       books.map((b) => {
         if (b._id !== bookId) return b;
         if (b.chapters.length <= 1) return b;
-        return { ...b, chapters: b.chapters.filter((ch) => ch._id !== chapterId) };
+        return { ...b, chapters: b.chapters.filter((c) => c._id !== chapterId) };
       })
     );
   };
 
   const updateChapter = (bookId, chapterId, field, value) => {
     setBooks(
-      books.map((b) =>
-        b._id !== bookId
-          ? b
-          : {
-              ...b,
-              chapters: b.chapters.map((ch) =>
-                ch._id !== chapterId ? ch : { ...ch, [field]: value }
-              ),
-            }
-      )
+      books.map((b) => {
+        if (b._id !== bookId) return b;
+        return {
+          ...b,
+          chapters: b.chapters.map((c) =>
+            c._id === chapterId ? { ...c, [field]: value } : c
+          ),
+        };
+      })
     );
   };
 
@@ -507,7 +636,7 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
         for (let r = 0; r < pastedRows.length; r++) {
           const targetIndex = chapterIndex + r;
           if (targetIndex >= newChapters.length) {
-            newChapters.push({ _id: generateId(), unitNo: '', unitName: '', clusterId: clusters[0]?.id || '', pages: 0 });
+            newChapters.push({ _id: generateId(), unitNo: '', unitName: '', clusterId: clusters[0]?.id || '', pages: 0, priority: null });
           }
           const rowData = pastedRows[r];
           const ch = { ...newChapters[targetIndex] };
@@ -528,6 +657,62 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
         return { ...b, chapters: newChapters };
       })
     );
+  };
+
+  const teamTemplateHeaders = ['Name', 'Role', 'Bandwidth', 'Leaves'];
+
+  const handleBulkUploadTeam = (parsedData) => {
+    if (!parsedData || parsedData.length === 0) return;
+    
+    const newMembers = parsedData.map(row => {
+       const name = row['Name']?.trim();
+       if (!name) return null;
+
+       let leaves = [];
+       const leaveStr = row['Leaves'];
+       if (leaveStr) {
+          leaves = leaveStr.split(',').map(s => s.trim()).filter(s => s).sort();
+       }
+
+       return {
+          _id: generateId(),
+          name,
+          role: row['Role'] || ROLE_OPTIONS[0],
+          bandwidth: parseFloat(row['Bandwidth']) || 1,
+          leaves
+       };
+    }).filter(m => m !== null);
+
+    if (newMembers.length > 0) setTeamMembers(newMembers);
+  };
+
+  const holidayTemplateHeaders = ['Date', 'Description'];
+
+  const handleBulkUploadHolidays = (parsedData) => {
+    if (!parsedData || parsedData.length === 0) return;
+    
+    const newHols = parsedData.map(row => {
+       let dateStr = row['Date'];
+       if (dateStr instanceof Date) {
+          dateStr = dateStr.toISOString().split('T')[0];
+       } else if (typeof dateStr === 'string' && dateStr.trim()) {
+          // Normalize various formats or forward as string natively
+          dateStr = dateStr.trim().replace(/\//g, '-'); 
+       } else if (typeof dateStr === 'number') {
+           // Fallback for SheetJS if cellDates fails
+           const d = new Date(Math.round((dateStr - 25569) * 86400 * 1000));
+           dateStr = d.toISOString().split('T')[0];
+       }
+       if (!dateStr) return null;
+
+       return {
+          _id: generateId(),
+          date: dateStr,
+          description: row['Description']?.toString().trim() || ''
+       };
+    }).filter(h => h !== null);
+
+    if (newHols.length > 0) setHolidays(newHols);
   };
 
   // ── Step 4 helpers — Team Members ─────────────────────────────────────
@@ -829,12 +1014,19 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
         {/* ── STEP 2: Steps & Norms ──────────────────────────────────────── */}
         {currentStepIndex === 1 && (
           <div className="animate-fade-in">
-            <p className={styles.stepDesc}>
-              Enter norms in <strong>mandays per unit</strong>. Rename cluster headers for this plan.
-              Set <strong>Depends On</strong> for step chaining.
-              For <strong>Book</strong>-level steps, enter a single mandays value (applies once per book).
-              {isPrint && ' Set Ref. Pages to scale effort by page count.'}
-            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <p className={styles.stepDesc} style={{ margin: 0, paddingRight: 16 }}>
+                Enter norms in <strong>mandays per unit</strong>. Rename cluster headers for this plan.
+                Set <strong>Depends On</strong> for step chaining.
+                For <strong>Book</strong>-level steps, enter a single mandays value (applies once per book).
+                {isPrint && ' Set Ref. Pages to scale effort by page count.'}
+              </p>
+              <BulkUploadButton 
+                 onUpload={handleBulkUploadSteps} 
+                 templateHeaders={stepTemplateHeaders} 
+                 templateName="steps_and_norms_template" 
+              />
+            </div>
             <div className={styles.tableWrapper}>
               <table className="data-table">
                 <thead>
@@ -963,13 +1155,18 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
         {/* ── STEP 3: Books & Chapters ───────────────────────────────────── */}
         {currentStepIndex === 2 && (
           <div className="animate-fade-in">
-            <p className={styles.stepDesc}>
-              Define your books and add chapters (units) within each book.
-              Books appear as grouped sections in the final plan grid.
-              {isPrint && ' Enter page count per chapter for effort scaling.'}
-            </p>
-
-            {books.map((book, bIdx) => (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <p className={styles.stepDesc} style={{ margin: 0, paddingRight: 16 }}>
+                Define your books and add chapters (units) within each book.
+                Books appear as grouped sections in the final plan grid.
+                {isPrint && ' Enter page count per chapter for effort scaling.'}
+              </p>
+              <BulkUploadButton 
+                 onUpload={handleBulkUploadBooks} 
+                 templateHeaders={bookTemplateHeaders} 
+                 templateName="books_and_chapters_template" 
+              />
+            </div>            {books.map((book, bIdx) => (
               <div key={book._id} className={styles.bookBlock}>
                 {/* Book name */}
                 <div className={styles.bookHeader}>
@@ -1059,10 +1256,17 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
         {/* ── STEP 4: Execution Priority ───────────────────────────────────────── */}
         {currentStepIndex === 3 && (
           <div className="animate-fade-in">
-            <p className={styles.stepDesc}>
-              Drag and drop chapters to force their chronological execution priority.
-              Items at the top of the list will steal scheduling bandwidth natively to execute first!
-            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <p className={styles.stepDesc} style={{ margin: 0, paddingRight: 16 }}>
+                Drag and drop chapters to force their chronological execution priority.
+                Items at the top of the list will steal scheduling bandwidth natively to execute first!
+              </p>
+              <BulkUploadButton 
+                 onUpload={handleBulkUploadPriority} 
+                 templateHeaders={priorityTemplateHeaders} 
+                 templateName="execution_priority_template" 
+              />
+            </div>
             <div className={styles.tableWrapper}>
               <table className="data-table">
                 <thead>
@@ -1106,10 +1310,17 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
         {/* ── STEP 5: Team Members ───────────────────────────────────────── */}
         {currentStepIndex === 4 && (
           <div className="animate-fade-in">
-            <p className={styles.stepDesc}>
-              Add team members for this plan. Bandwidth is their daily availability
-              (1 = full day, 0.5 = half day). Add individual leave dates per member.
-            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <p className={styles.stepDesc} style={{ margin: 0, paddingRight: 16 }}>
+                Add team members for this plan. Bandwidth is their daily availability
+                (1 = full day, 0.5 = half day). Add individual leave dates per member (comma separated in CSV).
+              </p>
+              <BulkUploadButton 
+                 onUpload={handleBulkUploadTeam} 
+                 templateHeaders={teamTemplateHeaders} 
+                 templateName="team_members_template" 
+              />
+            </div>
             <div className={styles.tableWrapper}>
               <table className="data-table">
                 <thead>
@@ -1180,10 +1391,17 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
         {/* ── STEP 6: Holidays ──────────────────────────────────────────── */}
         {currentStepIndex === 5 && (
           <div className="animate-fade-in">
-            <p className={styles.stepDesc}>
-              Add public holidays for this plan window. These dates are blocked for
-              <strong> all team members</strong> when calculating the schedule.
-            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <p className={styles.stepDesc} style={{ margin: 0, paddingRight: 16 }}>
+                Add public holidays for this plan window. These dates are blocked for
+                <strong> all team members</strong> when calculating the schedule.
+              </p>
+              <BulkUploadButton 
+                 onUpload={handleBulkUploadHolidays} 
+                 templateHeaders={holidayTemplateHeaders} 
+                 templateName="holidays_template" 
+              />
+            </div>
             <div className={styles.tableWrapper}>
               <table className="data-table">
                 <thead>
