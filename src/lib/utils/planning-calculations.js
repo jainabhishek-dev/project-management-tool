@@ -177,6 +177,9 @@ function runEventDrivenSchedule(
           const norm       = parseFloat(normObj?.norm_in_mandays) || 0;
           const pagesRatio = step.norm_pages > 0 ? (chapter.pages || 1) / step.norm_pages : 1;
 
+          const existingTask = existingTasksMap[taskId] || {};
+          const isSkipped = existingTask.status === 'Skipped';
+
           nodes.push({
             id: taskId,
             type: 'chapter',
@@ -186,7 +189,7 @@ function runEventDrivenSchedule(
             bufferDays: step.buffer_days || 0,
             role_required: step.role_required,
             dependencies: deps,
-            effortDays: norm * pagesRatio,
+            effortDays: isSkipped ? 0 : (norm * pagesRatio),
             customPriority:
               typeof chapter.execution_priority === 'number'
                 ? chapter.execution_priority
@@ -211,6 +214,9 @@ function runEventDrivenSchedule(
         const bookPages  = sortedChapters.reduce((s, ch) => s + (ch.pages || 0), 0);
         const pagesRatio = step.norm_pages > 0 ? bookPages / step.norm_pages : 1;
 
+        const existingTask = existingTasksMap[taskId] || {};
+        const isSkipped = existingTask.status === 'Skipped';
+
         nodes.push({
           id: taskId,
           type: 'book',
@@ -220,7 +226,7 @@ function runEventDrivenSchedule(
           bufferDays: step.buffer_days || 0,
           role_required: step.role_required,
           dependencies: deps,
-          effortDays: parseFloat(step.book_norm_in_mandays || 0) * pagesRatio,
+          effortDays: isSkipped ? 0 : (parseFloat(step.book_norm_in_mandays || 0) * pagesRatio),
           customPriority:
             typeof book.execution_priority === 'number' ? book.execution_priority : Infinity,
           step_idx: sIdx,
