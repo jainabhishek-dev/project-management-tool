@@ -1,4 +1,4 @@
-import { format, addDays, isWeekend, parseISO, isBefore, isEqual, isValid } from 'date-fns';
+import { format, addDays, isWeekend, parseISO } from 'date-fns';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Core date utilities
@@ -12,6 +12,7 @@ export const isNonWorkingDay = (date, blockedSet) => {
 /**
  * Starting from startDate, advance by businessDaysToPlan working days,
  * skipping weekends and any dates in blockedSet.
+ * The startDate itself counts as Day 1 (if it is a working day).
  */
 export const addBusinessDaysWithHolidays = (
   startDate,
@@ -41,77 +42,30 @@ export const addBusinessDaysWithHolidays = (
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase-1: Assign one team member per (chapter × role) for chapter-level steps.
+// Advance a date to the next working day (same day if already working).
+// Uses the member-specific blocked set (holidays + personal leaves).
 // ─────────────────────────────────────────────────────────────────────────────
 
-function assignChapterRoles(books, steps, teamMembers) {
-  const chapterRoleAssignment = {};
-  const memberEstLoad = {};
-  teamMembers.forEach((m) => {
-    memberEstLoad[m.id] = 0;
-  });
-
-  const chapterLevelSteps = steps.filter(
-    (s) => !s.unit_of_calculation || s.unit_of_calculation === 'Chapter / Unit'
-  );
-  const rolesNeeded = [...new Set(chapterLevelSteps.map((s) => s.role_required))];
-
-  const sortedBooks = [...books].sort((a, b) => a.display_order - b.display_order);
-
-  for (const book of sortedBooks) {
-    const sortedChapters = [...(book.chapters || [])].sort(
-      (a, b) => a.display_order - b.display_order
-    );
-
-    for (const chapter of sortedChapters) {
-      // Track which person NAMES are already assigned to this chapter (any role).
-      // Must use name, not id — the same person can have multiple rows in
-      // plan_team_members (e.g. "Anjutha" as both Reviewer 1 and Reviewer 2),
-      // each with a different row id. Tracking by name catches both rows.
-      const assignedNamesForChapter = new Set();
-
-      for (const role of rolesNeeded) {
-        const candidates = teamMembers.filter((m) => m.role === role);
-        if (candidates.length === 0) continue;
-
-        // Sort by estimated load (least loaded first), then skip anyone whose
-        // name is already assigned to this chapter in a different role.
-        const sortedCandidates = [...candidates].sort(
-          (a, b) => memberEstLoad[a.id] - memberEstLoad[b.id]
-        );
-
-        const winner = sortedCandidates.find(
-          (c) => !assignedNamesForChapter.has(c.name)
-        );
-
-        // If no conflict-free candidate exists, leave this slot unassigned
-        if (!winner) continue;
-
-        chapterRoleAssignment[`${chapter.id}-${role}`] = winner;
-        assignedNamesForChapter.add(winner.name);
-
-        const chapterEffort = chapterLevelSteps
-          .filter((s) => s.role_required === role)
-          .reduce((sum, step) => {
-            const normObj = (step.norms || []).find(
-              (n) => n.cluster_id === chapter.cluster_id
-            );
-            const norm = parseFloat(normObj?.norm_in_mandays) || 0;
-            const pagesRatio =
-              step.norm_pages > 0 ? (chapter.pages || 1) / step.norm_pages : 1;
-            return sum + norm * pagesRatio;
-          }, 0);
-
-        memberEstLoad[winner.id] += chapterEffort / winner.bandwidth;
-      }
-    }
-  }
-
-  return chapterRoleAssignment;
+function nextWorkingDay(date, blockedSet) {
+  let d = new Date(date);
+  while (isNonWorkingDay(d, blockedSet)) d = addDays(d, 1);
+  return d;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase-2: Event-Driven Simulation (Option B: Left-to-Right Priority)
+// Event-Driven Opportunistic Scheduler
+//
+// Design principles:
+//  1. No phase-1 pre-assignment. All chapter assignments are made dynamically
+//     the moment a task becomes "ready" (all dependencies done).
+//  2. Strict stickiness: once a person is assigned to (chapter, role), they
+//     handle ALL future steps with that role on that chapter. Other people's
+//     assignment to that chapter must be a different person (conflict rule).
+//  3. Book-closure priority: when a book's chapter steps are all done and its
+//     book-level step is ready, that task is scheduled before any new chapter task.
+//  4. No sub-day fractional packing. Tasks occupy whole working days.
+//     Duration = ceil(effortDays / bandwidth), minimum 1 working day.
+//     After a task ends, the person's next slot starts the following working day.
 // ─────────────────────────────────────────────────────────────────────────────
 
 function runEventDrivenSchedule(
@@ -120,60 +74,67 @@ function runEventDrivenSchedule(
   teamMembers,
   holidaySet,
   memberLeavesMap,
-  chapterRoleAssignment,
-  preservedBookAssignments = {},
   manualOverrides = {},
-  existingTasksMap = {}
+  existingTasksMap = {},
+  preservedAssignments = {}   // `${chapterId}|${role}` or `${bookId}|book|${stepId}` → memberId
 ) {
   const globalHolidays = holidaySet || new Set();
-  const blockedSetGlobal = new Set(globalHolidays);
   const sortedSteps = [...(plan.steps || [])].sort((a, b) => a.display_order - b.display_order);
   const sortedBooks = [...books].sort((a, b) => a.display_order - b.display_order);
-  
   const planStartDate = parseISO(plan.start_date);
-  
-  // Track sub-day fractional availability
-  const memberFreeDate = {};
-  const memberCapacityLeft = {};
+
+  // ── Per-member blocked sets (global holidays + personal leaves) ──────────
+  const memberBlockedSets = {};
   teamMembers.forEach((m) => {
-    memberFreeDate[m.id] = new Date(planStartDate);
-    memberCapacityLeft[m.id] = 1.0;
+    const blocked = new Set(globalHolidays);
+    const leaves = memberLeavesMap[m.id] || new Set();
+    leaves.forEach((l) => blocked.add(l));
+    memberBlockedSets[m.id] = blocked;
   });
 
-  // Track task ends to resolve dependencies
-  const taskEndDates = {}; // taskId → Date
-  const taskEndRowEffort = {}; // taskId → Number (0 to 1, representing daily effort consumed on the finalEnd date)
+  // ── Member availability tracking ─────────────────────────────────────────
+  // memberFreeDate[id] = the first working day the member is available.
+  const memberFreeDate = {};
+  teamMembers.forEach((m) => {
+    memberFreeDate[m.id] = nextWorkingDay(planStartDate, memberBlockedSets[m.id]);
+  });
 
-  // 1. Generate all task nodes
+  // ── Sticky assignment map ────────────────────────────────────────────────
+  // chapterRoleMap[`${chapterId}|${role}`] = memberId
+  // Seeded from preserved assignments (used by cascadeAfterEdit).
+  const chapterRoleMap = { ...preservedAssignments };
+
+  // ── Dependency resolution ────────────────────────────────────────────────
+  const taskEndDates = {}; // taskId → Date
+
+  // ── Build task nodes ─────────────────────────────────────────────────────
   const nodes = [];
 
   for (let bIdx = 0; bIdx < sortedBooks.length; bIdx++) {
     const book = sortedBooks[bIdx];
-    const sortedChapters = [...(book.chapters || [])].sort((a, b) => a.display_order - b.display_order);
+    const sortedChapters = [...(book.chapters || [])].sort(
+      (a, b) => a.display_order - b.display_order
+    );
 
     for (let sIdx = 0; sIdx < sortedSteps.length; sIdx++) {
       const step = sortedSteps[sIdx];
       const isBookStep = step.unit_of_calculation === 'Book';
-      
       const predStepId = step.parallel_dependency_id;
-      const predStep = predStepId ? sortedSteps.find(s => s.id === predStepId) : null;
+      const predStep = predStepId ? sortedSteps.find((s) => s.id === predStepId) : null;
       const isPredBookStep = predStep?.unit_of_calculation === 'Book';
 
       if (!isBookStep) {
-        // Chapter tasks
+        // Chapter-level tasks
         for (let cIdx = 0; cIdx < sortedChapters.length; cIdx++) {
           const chapter = sortedChapters[cIdx];
           const taskId = `${chapter.id}-${step.id}`;
-          
+
           let dependencies = [];
           if (predStep) {
             if (isPredBookStep) dependencies.push(`${book.id}-${predStep.id}`);
             else dependencies.push(`${chapter.id}-${predStep.id}`);
           }
 
-          const member = chapterRoleAssignment[`${chapter.id}-${step.role_required}`];
-          
-          // Pages ratio prep
           const normObj = (step.norms || []).find((n) => n.cluster_id === chapter.cluster_id);
           const norm = parseFloat(normObj?.norm_in_mandays) || 0;
           const pagesRatio = step.norm_pages > 0 ? (chapter.pages || 1) / step.norm_pages : 1;
@@ -186,28 +147,28 @@ function runEventDrivenSchedule(
             bookId: null,
             stepId: step.id,
             bufferDays: step.buffer_days || 0,
-            assignedMember: member,
             role_required: step.role_required,
             dependencies,
             effortDays,
-            customPriority: typeof chapter.execution_priority === 'number' ? chapter.execution_priority : Infinity,
-            step_idx: sIdx,       // Higher is better priority (closer to done)
-            book_idx: bIdx,       // Lower is better priority (first book)
-            chapter_idx: cIdx,    // Lower is better priority (first chapter)
+            customPriority: typeof chapter.execution_priority === 'number'
+              ? chapter.execution_priority
+              : Infinity,
+            step_idx: sIdx,
+            book_idx: bIdx,
+            chapter_idx: cIdx,
             isDone: false,
-            taskRecord: null,
           });
         }
       } else {
-        // Book tasks
+        // Book-level task
         const taskId = `${book.id}-${step.id}`;
         let dependencies = [];
         if (predStep) {
           if (isPredBookStep) {
             dependencies.push(`${book.id}-${predStep.id}`);
           } else {
-            // Book step waits for ALL chapters of predecessor
-            sortedChapters.forEach(ch => dependencies.push(`${ch.id}-${predStep.id}`));
+            // Waits for ALL chapters of this book for the predecessor step
+            sortedChapters.forEach((ch) => dependencies.push(`${ch.id}-${predStep.id}`));
           }
         }
 
@@ -222,249 +183,208 @@ function runEventDrivenSchedule(
           bookId: book.id,
           stepId: step.id,
           bufferDays: step.buffer_days || 0,
-          assignedMember: null, // Resolved right when it starts
           role_required: step.role_required,
           dependencies,
           effortDays,
-          customPriority: typeof book.execution_priority === 'number' ? book.execution_priority : Infinity,
+          customPriority: typeof book.execution_priority === 'number'
+            ? book.execution_priority
+            : Infinity,
           step_idx: sIdx,
           book_idx: bIdx,
           chapter_idx: -1,
           isDone: false,
-          taskRecord: null,
         });
       }
     }
   }
 
-  // 2. Event loop until all nodes are processed
+  // ── Helper: find eligible member for a task ───────────────────────────────
+  //
+  // Rules applied in order:
+  //  1. Stickiness: if this chapter+role is already locked to a person, use them.
+  //  2. Conflict: exclude anyone already assigned to this chapter in any OTHER role.
+  //  3. Among eligible candidates, pick the one who will be free earliest
+  //     (using the task's earliestDepEnd as a lower bound on start time).
+  //
+  function findEligibleMember(task, earliestDepEnd) {
+    // ── Stickiness check ──────────────────────────────────────────────────
+    if (task.chapterId) {
+      const stickyKey = `${task.chapterId}|${task.role_required}`;
+      if (chapterRoleMap[stickyKey]) {
+        const locked = teamMembers.find((m) => m.id === chapterRoleMap[stickyKey]);
+        return locked || null;
+      }
+    }
+
+    // ── Build candidate pool ──────────────────────────────────────────────
+    let candidates = teamMembers.filter((m) => m.role === task.role_required);
+    if (candidates.length === 0) return null;
+
+    // ── Conflict rule for chapter tasks ───────────────────────────────────
+    // Exclude anyone whose name is already assigned to this chapter in any role.
+    if (task.chapterId) {
+      const usedNames = new Set();
+      Object.entries(chapterRoleMap).forEach(([key, memberId]) => {
+        if (key.startsWith(`${task.chapterId}|`)) {
+          const m = teamMembers.find((tm) => tm.id === memberId);
+          if (m) usedNames.add(m.name);
+        }
+      });
+      candidates = candidates.filter((c) => !usedNames.has(c.name));
+      if (candidates.length === 0) return null;
+    }
+
+    // ── Pick earliest-available candidate ─────────────────────────────────
+    // "effective start" = max(when the person is free, earliestDepEnd)
+    // Prefer the person who can start earliest; break ties by higher bandwidth.
+    return candidates.sort((a, b) => {
+      const aFree = nextWorkingDay(memberFreeDate[a.id], memberBlockedSets[a.id]);
+      const bFree = nextWorkingDay(memberFreeDate[b.id], memberBlockedSets[b.id]);
+      const aStart = aFree > earliestDepEnd ? aFree : earliestDepEnd;
+      const bStart = bFree > earliestDepEnd ? bFree : earliestDepEnd;
+      if (aStart.valueOf() !== bStart.valueOf()) return aStart.valueOf() - bStart.valueOf();
+      return b.bandwidth - a.bandwidth;
+    })[0];
+  }
+
+  // ── Scheduling loop ───────────────────────────────────────────────────────
   const tasksOutput = [];
   const MAX_LOOPS = 500000;
   let loops = 0;
 
-  while (nodes.some(n => !n.isDone) && loops < MAX_LOOPS) {
+  while (nodes.some((n) => !n.isDone) && loops < MAX_LOOPS) {
     loops++;
 
-    // Find all "Ready" tasks (all dependencies are Done/scheduled)
-    const readyTasks = nodes.filter(n => {
+    // Find all tasks whose dependencies are fully resolved
+    const readyNodes = nodes.filter((n) => {
       if (n.isDone) return false;
-      return n.dependencies.every(depId => taskEndDates[depId] !== undefined);
+      return n.dependencies.every((depId) => taskEndDates[depId] !== undefined);
     });
 
-    if (readyTasks.length === 0) {
-      // Missing dependencies or cycle. Unblock remaining randomly to prevent infinite loop
-      const remaining = nodes.filter(n => !n.isDone);
+    if (readyNodes.length === 0) {
+      // Guard against dependency cycles / missing deps
+      const remaining = nodes.filter((n) => !n.isDone);
       if (remaining.length > 0) remaining[0].dependencies = [];
       continue;
     }
 
-    // Evaluate Earliest Possible Start for all Ready tasks based on Predecessors ONLY
-    readyTasks.forEach(task => {
-      let earliestStart = new Date(planStartDate);
-      let inheritedEffort = 0;
-
-      task.dependencies.forEach(depId => {
-        const depEnd = new Date(taskEndDates[depId]);
-        const depRowEffort = taskEndRowEffort[depId] || 0;
-
-        let candidateStart = new Date(depEnd);
-        let candidateInheritedEffort = depRowEffort;
-
-        // User fractional boundary rule: if row hit >= 0.75 mandays on that finish date, push NEXT to fresh morning
-        if (depRowEffort >= 0.75) {
-          candidateStart = addDays(candidateStart, 1);
-          while (isNonWorkingDay(candidateStart, blockedSetGlobal)) candidateStart = addDays(candidateStart, 1);
-          candidateInheritedEffort = 0;
-        }
-
-        if (candidateStart > earliestStart) {
-          earliestStart = candidateStart;
-          inheritedEffort = candidateInheritedEffort;
-        } else if (candidateStart.valueOf() === earliestStart.valueOf()) {
-          inheritedEffort = Math.max(inheritedEffort, candidateInheritedEffort);
+    // Compute earliest dep-resolved start for each ready task
+    readyNodes.forEach((task) => {
+      let earliestDepEnd = new Date(planStartDate);
+      task.dependencies.forEach((depId) => {
+        const depEnd = taskEndDates[depId];
+        if (depEnd) {
+          // The next working day after the dependency ends (global holidays only;
+          // member-specific leaves are factored in via memberFreeDate).
+          let candidate = addDays(depEnd, 1);
+          while (isNonWorkingDay(candidate, globalHolidays)) candidate = addDays(candidate, 1);
+          if (candidate > earliestDepEnd) earliestDepEnd = candidate;
         }
       });
 
       if (task.bufferDays > 0) {
-        earliestStart = addBusinessDaysWithHolidays(earliestStart, task.bufferDays, globalHolidays);
-        inheritedEffort = 0;
+        earliestDepEnd = addBusinessDaysWithHolidays(earliestDepEnd, task.bufferDays, globalHolidays);
       }
-      task.earliestTheoreticalStart = earliestStart;
-      task.inheritedRowEffort = inheritedEffort;
+      task.earliestDepEnd = earliestDepEnd;
 
-      // Assign dynamic member for Book tasks now based on who avoids delays
-      if (task.type === 'book' && !task.assignedMember) {
-        let bestMember = null;
-        if (preservedBookAssignments[task.id]) {
-           bestMember = teamMembers.find(m => m.id === preservedBookAssignments[task.id]);
-        }
-        
-        if (!bestMember) {
-           const candidates = teamMembers.filter(m => m.role === task.role_required);
-           if (candidates.length > 0) {
-              bestMember = candidates.sort((a, b) => {
-                 const mFreeDate = new Date(memberFreeDate[a.id]);
-                 const nFreeDate = new Date(memberFreeDate[b.id]);
-                 const aStart = Math.max(earliestStart.valueOf(), mFreeDate.valueOf());
-                 const bStart = Math.max(earliestStart.valueOf(), nFreeDate.valueOf());
-                 if (aStart !== bStart) return aStart - bStart;
-                 return b.bandwidth - a.bandwidth; // Highest bandwidth wins tie
-              })[0];
-           }
-        }
-        task.assignedMember = bestMember || { id: null, bandwidth: 1, _missing: true }; // Dummy for unassigned
-      }
+      // Find the eligible member now (needed for actualStart computation below)
+      const eligible = findEligibleMember(task, earliestDepEnd);
+      task.eligibleMember = eligible;
 
-      // Calculate actual start including member's free timeline
-      if (task.assignedMember && !task.assignedMember._missing) {
-         const mFreeDate = memberFreeDate[task.assignedMember.id];
-         task.actualStart = task.earliestTheoreticalStart > mFreeDate ? task.earliestTheoreticalStart : mFreeDate;
+      if (eligible) {
+        const mFree = nextWorkingDay(memberFreeDate[eligible.id], memberBlockedSets[eligible.id]);
+        task.actualStart = mFree > earliestDepEnd ? mFree : nextWorkingDay(earliestDepEnd, memberBlockedSets[eligible.id]);
       } else {
-         task.actualStart = task.earliestTheoreticalStart; // Unassigned falls back to earliest
+        task.actualStart = earliestDepEnd;
       }
     });
 
-    // Pick the BEST ready task to schedule next
-    // Rule 1: Starts earliest in real time (simulating chronological timeline)
-    // Rule 2: Explicit Custom User Priority (P1 beats P2)
-    // Rule 3: Left-to-Right Priority (Higher step index => closer to completion wins)
-    // Rule 4: Top-to-Bottom Priority (Lower book/chapter index wins)
+    // ── Priority sort ─────────────────────────────────────────────────────
+    // Rule 0: Book tasks (all chapter deps done → book closure) beat chapter tasks
+    //         AT THE SAME actual start time. This prevents a free person from
+    //         picking up a new chapter when they could close an already-ready book.
+    // Rule 1: Earliest actual start
+    // Rule 2: Explicit custom priority
+    // Rule 3: Left-to-right (higher step index = closer to project completion)
+    // Rule 4: Top-to-bottom (lower book/chapter index)
+    readyNodes.sort((a, b) => {
+      const aStart = a.actualStart.valueOf();
+      const bStart = b.actualStart.valueOf();
+      if (aStart !== bStart) return aStart - bStart;                         // Rule 1
 
-    readyTasks.sort((a, b) => {
-       const startA = a.actualStart.valueOf();
-       const startB = b.actualStart.valueOf();
-       if (startA !== startB) return startA - startB; // Rule 1
+      const aIsBook = a.type === 'book' ? 0 : 1;
+      const bIsBook = b.type === 'book' ? 0 : 1;
+      if (aIsBook !== bIsBook) return aIsBook - bIsBook;                     // Rule 0
 
-       if (a.customPriority !== b.customPriority) return a.customPriority - b.customPriority; // Rule 2
-
-       if (a.step_idx !== b.step_idx) return b.step_idx - a.step_idx; // Rule 3
-       if (a.book_idx !== b.book_idx) return a.book_idx - b.book_idx; // Rule 4
-       return a.chapter_idx - b.chapter_idx;                          // Rule 4
+      if (a.customPriority !== b.customPriority)
+        return a.customPriority - b.customPriority;                          // Rule 2
+      if (a.step_idx !== b.step_idx) return b.step_idx - a.step_idx;        // Rule 3
+      if (a.book_idx !== b.book_idx) return a.book_idx - b.book_idx;        // Rule 4
+      return a.chapter_idx - b.chapter_idx;
     });
 
-    const winner = readyTasks[0];
-
-    // Compute Exact Dates
-    let finalStart;
-    let finalEnd;
-    let finalEndRowEffort = 0;
-
-    const blocked = new Set(globalHolidays);
-    if (winner.assignedMember && !winner.assignedMember._missing) {
-       const mLeaves = memberLeavesMap[winner.assignedMember.id] || new Set();
-       mLeaves.forEach(l => blocked.add(l));
+    // Pick the highest-priority task that has an eligible member right now
+    const winner = readyNodes.find((t) => t.eligibleMember);
+    if (!winner) {
+      // All ready tasks are blocked (strict stickiness awaiting a locked person).
+      // Unblock one to prevent an infinite loop.
+      const remaining = nodes.filter((n) => !n.isDone);
+      if (remaining.length > 0) remaining[0].dependencies = [];
+      continue;
     }
+
+    // ── Compute exact dates ───────────────────────────────────────────────
+    let finalStart, finalEnd;
+    const member = winner.eligibleMember;
+    const blocked = memberBlockedSets[member.id];
 
     const manualOverride = manualOverrides[winner.id];
-    let finalEndStr;
-
     if (manualOverride) {
+      // User manually set an end date — respect it; start = earliest possible.
+      finalStart = nextWorkingDay(winner.earliestDepEnd, blocked);
+      const mFree = nextWorkingDay(memberFreeDate[member.id], blocked);
+      if (mFree > finalStart) finalStart = mFree;
       finalEnd = parseISO(manualOverride);
-      finalEndStr = manualOverride;
-      finalStart = winner.actualStart; 
-      
-      // Update member tracking conceptually
-      if (winner.assignedMember && !winner.assignedMember._missing) {
-         memberFreeDate[winner.assignedMember.id] = finalEnd;
-         memberCapacityLeft[winner.assignedMember.id] = 0.0; 
-      }
-      finalEndRowEffort = Math.min(1.0, winner.effortDays); // fallback
     } else {
-      const bandwidth = winner.assignedMember ? winner.assignedMember.bandwidth : 1;
-      const effectiveDays = winner.effortDays > 0 ? winner.effortDays / (bandwidth || 1) : 1;
+      // Normal computation — no sub-day packing.
+      // Duration = ceil(effort / bandwidth), minimum 1 working day.
+      const bandwidth = member.bandwidth || 1;
+      const calendarDays = Math.max(1, Math.ceil(winner.effortDays / bandwidth));
 
-      if (!winner.assignedMember || winner.assignedMember._missing) {
-        finalStart = winner.earliestTheoreticalStart;
-        while (isNonWorkingDay(finalStart, blocked)) finalStart = addDays(finalStart, 1);
-        
-        let totalEffortAvailableOnStartDay = 1.0 - winner.inheritedRowEffort;
-
-        if (effectiveDays <= totalEffortAvailableOnStartDay) {
-          finalEnd = new Date(finalStart);
-          finalEndRowEffort = winner.inheritedRowEffort + effectiveDays;
-        } else {
-          let overflow = effectiveDays - totalEffortAvailableOnStartDay;
-          finalEnd = new Date(finalStart);
-          do {
-             finalEnd = addDays(finalEnd, 1);
-             while (isNonWorkingDay(finalEnd, blocked)) finalEnd = addDays(finalEnd, 1);
-          } while (false);
-
-          while (overflow > 1.0) {
-             finalEnd = addDays(finalEnd, 1);
-             while (isNonWorkingDay(finalEnd, blocked)) finalEnd = addDays(finalEnd, 1);
-             overflow -= 1.0;
-          }
-          finalEndRowEffort = overflow === 0 ? 1.0 : overflow;
-        }
-      } else {
-        const mId = winner.assignedMember.id;
-        let mFree = new Date(memberFreeDate[mId]);
-        let mCap = memberCapacityLeft[mId];
-
-        const earliestStr = format(winner.earliestTheoreticalStart, 'yyyy-MM-dd');
-        while (format(mFree, 'yyyy-MM-dd') < earliestStr || isNonWorkingDay(mFree, blocked)) {
-          mFree = addDays(mFree, 1);
-          mCap = 1.0; 
-        }
-
-        finalStart = new Date(mFree);
-
-        let currentDayRowEffort = 0;
-        if (format(finalStart, 'yyyy-MM-dd') === earliestStr) {
-            currentDayRowEffort = winner.inheritedRowEffort;
-        }
-
-        if (effectiveDays <= mCap) {
-          mCap -= effectiveDays;
-          finalEnd = new Date(mFree);
-          finalEndRowEffort = currentDayRowEffort + effectiveDays;
-        } else {
-          let overflow = effectiveDays - mCap;
-          
-          do {
-             mFree = addDays(mFree, 1);
-             while (isNonWorkingDay(mFree, blocked)) mFree = addDays(mFree, 1);
-          } while (false); 
-
-          while (overflow > 1.0) {
-             mFree = addDays(mFree, 1);
-             while (isNonWorkingDay(mFree, blocked)) mFree = addDays(mFree, 1);
-             overflow -= 1.0;
-          }
-          
-          mCap = 1.0 - overflow;
-          if (mCap >= 1.0) mCap = 0; 
-          
-          finalEnd = new Date(mFree);
-          finalEndRowEffort = overflow === 0 ? 1.0 : overflow;
-        }
-
-        memberFreeDate[mId] = new Date(mFree);
-        memberCapacityLeft[mId] = mCap;
-      }
-      finalEndStr = format(finalEnd, 'yyyy-MM-dd');
+      finalStart = winner.actualStart;
+      finalEnd = addBusinessDaysWithHolidays(finalStart, calendarDays, blocked);
     }
 
-    // Bookkeeping
+    // ── Lock sticky assignment for chapter tasks ──────────────────────────
+    if (winner.chapterId) {
+      const stickyKey = `${winner.chapterId}|${winner.role_required}`;
+      if (!chapterRoleMap[stickyKey]) {
+        chapterRoleMap[stickyKey] = member.id;
+      }
+    }
+
+    // ── Update member's next free date ────────────────────────────────────
+    // Next slot = the working day immediately after finalEnd.
+    let nextFree = addDays(finalEnd, 1);
+    while (isNonWorkingDay(nextFree, blocked)) nextFree = addDays(nextFree, 1);
+    memberFreeDate[member.id] = nextFree;
+
+    // ── Record ────────────────────────────────────────────────────────────
     taskEndDates[winner.id] = finalEnd;
-    taskEndRowEffort[winner.id] = finalEndRowEffort;
     winner.isDone = true;
 
-    // Build the DB Task Object
     const existing = existingTasksMap[winner.id] || {};
-    winner.taskRecord = {
-       ...existing,
-       deliverable_id: winner.chapterId,
-       book_id: winner.bookId,
-       step_id: winner.stepId,
-       plan_id: plan.id,
-       plan_team_member_id: winner.assignedMember && !winner.assignedMember._missing ? winner.assignedMember.id : null,
-       planned_start_date: format(finalStart, 'yyyy-MM-dd'),
-       planned_end_date: finalEndStr,
-       status: existing.status || 'Yet to start'
-    };
-    tasksOutput.push(winner.taskRecord);
+    tasksOutput.push({
+      ...existing,
+      deliverable_id: winner.chapterId,
+      book_id: winner.bookId,
+      step_id: winner.stepId,
+      plan_id: plan.id,
+      plan_team_member_id: member.id,
+      planned_start_date: format(finalStart, 'yyyy-MM-dd'),
+      planned_end_date: format(finalEnd, 'yyyy-MM-dd'),
+      status: existing.status || 'Yet to start',
+    });
   }
 
   return tasksOutput;
@@ -475,19 +395,26 @@ function runEventDrivenSchedule(
 // Public API
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Generate a full fresh schedule for a plan.
+ * Assignments are made opportunistically — no pre-assignment phase.
+ */
 export const forecastExecutionTasks = (plan, books, teamMembers, holidaySet) => {
   const memberLeavesMap = {};
   teamMembers.forEach((m) => {
     memberLeavesMap[m.id] = new Set((m.leaves || []).map((l) => l.leave_date));
   });
 
-  const chapterRoleAssignment = assignChapterRoles(books, plan.steps || [], teamMembers);
-
   return runEventDrivenSchedule(
-    plan, books, teamMembers, holidaySet, memberLeavesMap, chapterRoleAssignment
+    plan, books, teamMembers, holidaySet, memberLeavesMap
   );
 };
 
+/**
+ * Re-schedule downstream tasks after a user manually edits one end date.
+ * Existing assignments are preserved (seeded as preservedAssignments) so
+ * stickiness is maintained across the cascade.
+ */
 export const cascadeAfterEdit = (
   plan, books, existingTasks, teamMembers, holidaySet, overriddenTaskId, newEndDate
 ) => {
@@ -497,25 +424,25 @@ export const cascadeAfterEdit = (
   });
 
   const stepsById = Object.fromEntries((plan.steps || []).map((s) => [s.id, s]));
-  const chapterRoleAssignment = {};
-  const preservedBookAssignments = {};
 
+  // Rebuild the sticky assignment map from existing task records
+  // so the cascade respects who already did what.
+  const preservedAssignments = {};
   existingTasks.forEach((task) => {
     if (!task.plan_team_member_id) return;
     const step = stepsById[task.step_id];
     if (!step) return;
-
     if (task.deliverable_id && (!step.unit_of_calculation || step.unit_of_calculation === 'Chapter / Unit')) {
-      chapterRoleAssignment[`${task.deliverable_id}-${step.role_required}`] =
-        teamMembers.find((m) => m.id === task.plan_team_member_id);
-    } else if (task.book_id && step.unit_of_calculation === 'Book') {
-      preservedBookAssignments[`${task.book_id}-${step.id}`] = task.plan_team_member_id;
+      preservedAssignments[`${task.deliverable_id}|${step.role_required}`] = task.plan_team_member_id;
     }
+    // Book-level steps don't need sticky assignment (only one task per book per step)
   });
 
   const existingTasksMap = {};
   existingTasks.forEach((task) => {
-    const key = task.deliverable_id ? `${task.deliverable_id}-${task.step_id}` : `${task.book_id}-${task.step_id}`;
+    const key = task.deliverable_id
+      ? `${task.deliverable_id}-${task.step_id}`
+      : `${task.book_id}-${task.step_id}`;
     existingTasksMap[key] = task;
   });
 
@@ -529,7 +456,7 @@ export const cascadeAfterEdit = (
   }
 
   return runEventDrivenSchedule(
-    plan, books, teamMembers, holidaySet, memberLeavesMap, chapterRoleAssignment,
-    preservedBookAssignments, manualOverrides, existingTasksMap
+    plan, books, teamMembers, holidaySet, memberLeavesMap,
+    manualOverrides, existingTasksMap, preservedAssignments
   );
 };
