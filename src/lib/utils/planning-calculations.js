@@ -64,15 +64,29 @@ function assignChapterRoles(books, steps, teamMembers) {
     );
 
     for (const chapter of sortedChapters) {
+      // Track which member IDs are already assigned to this chapter (any role)
+      const assignedMemberIdsForChapter = new Set();
+
       for (const role of rolesNeeded) {
         const candidates = teamMembers.filter((m) => m.role === role);
         if (candidates.length === 0) continue;
 
-        const winner = [...candidates].sort((a, b) => {
-          return memberEstLoad[a.id] - memberEstLoad[b.id];
-        })[0];
+        // Sort by estimated load (least loaded first), then filter out
+        // anyone already assigned to this chapter in a different role.
+        const sortedCandidates = [...candidates].sort(
+          (a, b) => memberEstLoad[a.id] - memberEstLoad[b.id]
+        );
+
+        // Pick the first candidate who hasn't worked on this chapter yet
+        const winner = sortedCandidates.find(
+          (c) => !assignedMemberIdsForChapter.has(c.id)
+        );
+
+        // If no conflict-free candidate is available, leave this slot unassigned
+        if (!winner) continue;
 
         chapterRoleAssignment[`${chapter.id}-${role}`] = winner;
+        assignedMemberIdsForChapter.add(winner.id);
 
         const chapterEffort = chapterLevelSteps
           .filter((s) => s.role_required === role)
