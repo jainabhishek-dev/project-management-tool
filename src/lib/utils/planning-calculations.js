@@ -1,7 +1,10 @@
-import { format, addDays, isWeekend, parseISO } from 'date-fns';
+import { format, addDays, isWeekend, parseISO, startOfDay } from 'date-fns';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Core date utilities
+// Core Date & Fractional State Utilities
+//
+// A "State" is { date: Date, fraction: number } where 0 <= fraction < 1.
+// A full working day is 1.0 unit. Tasks consume exact fractions (effort / bandwidth).
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const isNonWorkingDay = (date, blockedSet) => {
@@ -9,60 +12,85 @@ export const isNonWorkingDay = (date, blockedSet) => {
   return blockedSet.has(format(date, 'yyyy-MM-dd'));
 };
 
+function compareStates(a, b) {
+  const diff = a.date.valueOf() - b.date.valueOf();
+  if (diff !== 0) return diff;
+  return a.fraction - b.fraction;
+}
+
+function cloneState(s) {
+  return { date: new Date(s.date), fraction: s.fraction };
+}
+
 /**
- * Starting from startDate, advance by businessDaysToPlan working days,
- * skipping weekends and any dates in blockedSet.
- * The startDate itself counts as Day 1 (must already be a working day).
+ * Ensures a state sits on a valid working day. If it currently sits on a
+ * non-working day, it is advanced to 0.0 of the next available working day.
  */
-export const addBusinessDaysWithHolidays = (
-  startDate,
-  businessDaysToPlan,
-  blockedSet = new Set()
-) => {
-  let date =
-    typeof startDate === 'string' ? parseISO(startDate) : new Date(startDate);
-  let remaining = businessDaysToPlan;
-
-  while (isNonWorkingDay(date, blockedSet)) date = addDays(date, 1);
-
-  while (remaining > 1) {
+function normalizeState(state, blockedSet) {
+  let { date, fraction } = state;
+  let advanced = false;
+  while (isNonWorkingDay(date, blockedSet)) {
     date = addDays(date, 1);
-    if (!isNonWorkingDay(date, blockedSet)) remaining -= 1;
+    advanced = true;
+  }
+  if (advanced) fraction = 0;
+  return { date, fraction };
+}
+
+/**
+ * Adds exact fractional working days to a state.
+ * Returns the new completion state, AND the exact calendar day work finished on.
+ */
+function addFractionalBusinessDays(startState, daysToAdd, blockedSet) {
+  let { date, fraction } = normalizeState(cloneState(startState), blockedSet);
+  let remaining = daysToAdd;
+  
+  if (remaining <= 0) {
+    return { newState: { date, fraction }, lastWorkedDay: new Date(date) };
   }
 
-  while (isNonWorkingDay(date, blockedSet)) date = addDays(date, 1);
+  let lastWorkedDay = new Date(date);
 
-  return date;
-};
+  while (remaining > 0) {
+    lastWorkedDay = new Date(date);
+    const availableToday = 1 - fraction;
 
-/** Advance date to the next working day (no-op if already a working day). */
-function nextWorkingDay(date, blockedSet) {
-  let d = new Date(date);
-  while (isNonWorkingDay(d, blockedSet)) d = addDays(d, 1);
-  return d;
+    // Floating point math safety check
+    if (remaining < availableToday - 0.0001) {
+      // Fits entirely within today
+      fraction += remaining;
+      remaining = 0;
+    } else if (Math.abs(remaining - availableToday) <= 0.0001) {
+      // Finishes exactly at the end of today.
+      // Roll over state to 0.0 of the next working day.
+      fraction = 0;
+      remaining = 0;
+      date = addDays(date, 1);
+      while (isNonWorkingDay(date, blockedSet)) date = addDays(date, 1);
+    } else {
+      // Consumes rest of today, spills into future days
+      remaining -= availableToday;
+      fraction = 0;
+      date = addDays(date, 1);
+      while (isNonWorkingDay(date, blockedSet)) date = addDays(date, 1);
+    }
+  }
+
+  return { 
+    newState: { date, fraction }, 
+    lastWorkedDay 
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Event-Driven Opportunistic Scheduler
 //
-// Design:
-//  1. No static pre-assignment. Every chapter-role assignment is made the
-//     moment the task becomes ready, choosing the earliest-free eligible person.
-//  2. Strict stickiness (Option A): once Person A does the "Creator" step of
-//     Chapter X, all future "Creator" steps on Chapter X go to Person A.
-//  3. Conflict rule: the same person cannot hold two different roles on the
-//     same chapter. Enforced via an O(1) per-chapter name set.
-//  4. Book-closure priority: book tasks beat chapter tasks at equal start time.
-//  5. No sub-day packing. Duration = ceil(effort / bandwidth) working days,
-//     min 1. After a task ends, the member's next slot starts the following
-//     working day.
-//  6. Progress guarantee: if no ready task has an eligible member, the
-//     top-priority task is force-scheduled as Unassigned so taskEndDates
-//     always gets an entry and the loop terminates in O(nodes) iterations.
-//  7. O(1) conflict lookup: chapterUsedNames[chapterId] is a live Set<name>
-//     updated whenever an assignment is locked — no O(n) map scan inside
-//     findEligibleMember. This keeps the total work at O(nodes × team) even
-//     for 200 chapters × 30 steps plans.
+// 1. Fractional Packing: tasks measuring 0.5 days are packed natively into
+//    the same calendar day (concurrency mathematically perfect).
+// 2. Zero-Delays: Unassigned tasks report 0 calendar days consumed, passing
+//    their state unchanged to successors, eliminating pipeline padding.
+// 3. Strict Stickiness: chapterUsedNames O(1) index tracks role locks.
+// 4. Progress Guarantee: unassigned fallback prevents infinite loops.
 // ─────────────────────────────────────────────────────────────────────────────
 
 function runEventDrivenSchedule(
@@ -78,7 +106,7 @@ function runEventDrivenSchedule(
   const globalHolidays  = holidaySet || new Set();
   const sortedSteps     = [...(plan.steps || [])].sort((a, b) => a.display_order - b.display_order);
   const sortedBooks     = [...books].sort((a, b) => a.display_order - b.display_order);
-  const planStartDate   = parseISO(plan.start_date);
+  const planStartDate   = startOfDay(parseISO(plan.start_date));
 
   // Per-member blocked sets: global holidays + personal leaves
   const memberBlockedSets = {};
@@ -88,23 +116,23 @@ function runEventDrivenSchedule(
     memberBlockedSets[m.id] = blocked;
   });
 
-  // Quick name-lookup by memberId
+  // Quick lookup
   const memberById = Object.fromEntries(teamMembers.map((m) => [m.id, m]));
 
-  // When each member is next free (first available working day)
-  const memberFreeDate = {};
+  // Track each member's exact fractional availability date
+  const memberFreeState = {};
   teamMembers.forEach((m) => {
-    memberFreeDate[m.id] = nextWorkingDay(planStartDate, memberBlockedSets[m.id]);
+    memberFreeState[m.id] = normalizeState(
+      { date: new Date(planStartDate), fraction: 0 }, 
+      memberBlockedSets[m.id]
+    );
   });
 
-  // ── Sticky assignment map ─────────────────────────────────────────────────
+  // ── Lock Maps ────────────────────────────────────────────────────────────
   // chapterRoleMap[`${chapterId}|${role}`] = memberId
   const chapterRoleMap = { ...preservedAssignments };
 
-  // ── O(1) conflict lookup ──────────────────────────────────────────────────
-  // chapterUsedNames[chapterId] = Set<memberName> of all people already
-  // assigned to that chapter in ANY role. Updated on every lock.
-  // Seeded from preserved assignments so cascades inherit existing conflicts.
+  // chapterUsedNames[chapterId] = Set<name>
   const chapterUsedNames = {};
   Object.entries(preservedAssignments).forEach(([key, mId]) => {
     const chapterId = key.split('|')[0];
@@ -114,12 +142,8 @@ function runEventDrivenSchedule(
     chapterUsedNames[chapterId].add(m.name);
   });
 
-  const taskEndDates = {}; // taskId → Date
-
-  // Unassigned tasks are zero-delay passthroughs: their successors start on
-  // the *same* working day rather than the next, so they don't artificially
-  // push the entire pipeline forward by 1 day per unassigned step.
-  const zeroDelayTaskIds = new Set();
+  // Output timelines track exact ending Fractional State per task
+  const taskEndStates = {}; // taskId → State { date, fraction }
 
   // ── Build task nodes ─────────────────────────────────────────────────────
   const nodes = [];
@@ -208,7 +232,6 @@ function runEventDrivenSchedule(
     }
   }
 
-  // ── Helper: lock an assignment and maintain the O(1) conflict index ───────
   function lockAssignment(chapterId, role, member) {
     const stickyKey = `${chapterId}|${role}`;
     if (!chapterRoleMap[stickyKey]) {
@@ -218,24 +241,15 @@ function runEventDrivenSchedule(
     }
   }
 
-  // ── Helper: find eligible member for a task ───────────────────────────────
-  //
-  // Complexity: O(teamMembers) — no map scan, O(1) conflict lookup.
-  //
-  function findEligibleMember(task, earliestDepEnd) {
-    // Stickiness check (strict Option A)
+  function findEligibleMember(task, earliestDepEndState) {
     if (task.chapterId) {
       const stickyKey = `${task.chapterId}|${task.role_required}`;
-      if (chapterRoleMap[stickyKey]) {
-        return memberById[chapterRoleMap[stickyKey]] || null;
-      }
+      if (chapterRoleMap[stickyKey]) return memberById[chapterRoleMap[stickyKey]] || null;
     }
 
-    // Candidate pool for this role
     let candidates = teamMembers.filter((m) => m.role === task.role_required);
     if (candidates.length === 0) return null;
 
-    // Conflict rule: O(1) name-set lookup
     if (task.chapterId) {
       const usedNames = chapterUsedNames[task.chapterId];
       if (usedNames && usedNames.size > 0) {
@@ -244,91 +258,77 @@ function runEventDrivenSchedule(
       }
     }
 
-    // Pick earliest-available candidate; break ties via higher bandwidth
+    // Pick earliest start. Earliest start is max(member.freeState, task.depEndState).
     return candidates.sort((a, b) => {
-      const aFree  = nextWorkingDay(memberFreeDate[a.id], memberBlockedSets[a.id]);
-      const bFree  = nextWorkingDay(memberFreeDate[b.id], memberBlockedSets[b.id]);
-      const aStart = aFree > earliestDepEnd ? aFree : earliestDepEnd;
-      const bStart = bFree > earliestDepEnd ? bFree : earliestDepEnd;
-      if (aStart.valueOf() !== bStart.valueOf()) return aStart.valueOf() - bStart.valueOf();
+      const aFree = memberFreeState[a.id];
+      const bFree = memberFreeState[b.id];
+      const aNorm = normalizeState(earliestDepEndState, memberBlockedSets[a.id]);
+      const bNorm = normalizeState(earliestDepEndState, memberBlockedSets[b.id]);
+
+      const aStart = compareStates(aFree, aNorm) > 0 ? aFree : aNorm;
+      const bStart = compareStates(bFree, bNorm) > 0 ? bFree : bNorm;
+
+      const comp = compareStates(aStart, bStart);
+      if (comp !== 0) return comp;
       return b.bandwidth - a.bandwidth;
     })[0];
   }
 
   // ── Scheduling loop ───────────────────────────────────────────────────────
-  // Worst case: each node is scheduled once + at most one dep-unblock pass per
-  // node = 2 × nodes. 4× cap gives a comfortable safety margin.
-  // With 200 chapters × 30 steps ≈ 6,050 nodes → MAX_LOOPS ≈ 24,200.
-  const MAX_LOOPS   = Math.max(nodes.length * 4, 2000);
+  const MAX_LOOPS   = Math.max(nodes.length * 4, 3000);
   const tasksOutput = [];
   let loops = 0;
 
   while (nodes.some((n) => !n.isDone) && loops < MAX_LOOPS) {
     loops++;
 
-    // Collect tasks whose dependencies are all resolved
     const readyNodes = nodes.filter((n) => {
       if (n.isDone) return false;
-      return n.dependencies.every((depId) => taskEndDates[depId] !== undefined);
+      return n.dependencies.every((depId) => taskEndStates[depId] !== undefined);
     });
 
     if (readyNodes.length === 0) {
-      // Dependency cycle or missing dep — unblock the first stuck node
       const stuck = nodes.find((n) => !n.isDone);
       if (stuck) stuck.dependencies = [];
       continue;
     }
 
-    // Compute earliestDepEnd and eligible member for every ready task
     readyNodes.forEach((task) => {
-      let earliestDepEnd = new Date(planStartDate);
+      let earliestDepEndState = normalizeState({ date: new Date(planStartDate), fraction: 0 }, globalHolidays);
+
       task.dependencies.forEach((depId) => {
-        const depEnd = taskEndDates[depId];
-        if (depEnd) {
-          if (zeroDelayTaskIds.has(depId)) {
-            // Zero-delay dep (unassigned step): successor starts on the same
-            // working day — no +1 day overhead added to the pipeline.
-            const candidate = nextWorkingDay(depEnd, globalHolidays);
-            if (candidate > earliestDepEnd) earliestDepEnd = candidate;
-          } else {
-            // Normal dep: successor starts the next working day after dep ends.
-            let candidate = addDays(depEnd, 1);
-            while (isNonWorkingDay(candidate, globalHolidays)) candidate = addDays(candidate, 1);
-            if (candidate > earliestDepEnd) earliestDepEnd = candidate;
+        const depState = taskEndStates[depId];
+        if (depState) {
+          const normalizedDep = normalizeState(depState, globalHolidays);
+          if (compareStates(normalizedDep, earliestDepEndState) > 0) {
+            earliestDepEndState = normalizedDep;
           }
         }
       });
 
       if (task.bufferDays > 0) {
-        earliestDepEnd = addBusinessDaysWithHolidays(
-          earliestDepEnd, task.bufferDays, globalHolidays
-        );
+        const { newState } = addFractionalBusinessDays(earliestDepEndState, task.bufferDays, globalHolidays);
+        earliestDepEndState = newState;
       }
-      task.earliestDepEnd = earliestDepEnd;
+      
+      task.earliestDepEndState = earliestDepEndState;
 
-      const eligible = findEligibleMember(task, earliestDepEnd);
+      const eligible = findEligibleMember(task, earliestDepEndState);
       task.eligibleMember = eligible;
 
       if (eligible) {
-        const mFree = nextWorkingDay(memberFreeDate[eligible.id], memberBlockedSets[eligible.id]);
-        task.actualStart =
-          mFree > earliestDepEnd
-            ? mFree
-            : nextWorkingDay(earliestDepEnd, memberBlockedSets[eligible.id]);
+        const mFree = memberFreeState[eligible.id];
+        const normalizedDep = normalizeState(earliestDepEndState, memberBlockedSets[eligible.id]);
+        task.actualStartState = compareStates(mFree, normalizedDep) > 0 ? mFree : normalizedDep;
       } else {
-        task.actualStart = earliestDepEnd;
+        task.actualStartState = earliestDepEndState;
       }
     });
 
-    // Priority sort
-    // Rule 0: Book tasks beat chapter tasks at the same actualStart (book closure)
-    // Rule 1: Earliest actualStart
-    // Rule 2: User-defined custom priority
-    // Rule 3: Left-to-right (higher step_idx = closer to project end)
-    // Rule 4: Top-to-bottom book / chapter order
+    // Priority sort maps states to integer weights easily
     readyNodes.sort((a, b) => {
-      const aVal = a.actualStart.valueOf();
-      const bVal = b.actualStart.valueOf();
+      const aVal = a.actualStartState.date.valueOf() + Math.floor(a.actualStartState.fraction * 24 * 3600 * 1000);
+      const bVal = b.actualStartState.date.valueOf() + Math.floor(b.actualStartState.fraction * 24 * 3600 * 1000);
       if (aVal !== bVal) return aVal - bVal;
 
       const aBook = a.type === 'book' ? 0 : 1;
@@ -341,19 +341,13 @@ function runEventDrivenSchedule(
       return a.chapter_idx - b.chapter_idx;
     });
 
-    // Schedule the best task with an eligible member. If none have one (strict
-    // stickiness holding all candidates busy), force-schedule the top-priority
-    // task as Unassigned to guarantee the loop always moves forward.
-    const winner         = readyNodes.find((t) => t.eligibleMember) || readyNodes[0];
-    const assignedMember = winner.eligibleMember; // null → unassigned
+    const winner = readyNodes.find((t) => t.eligibleMember) || readyNodes[0];
+    const assignedMember = winner.eligibleMember;
 
     if (!assignedMember) {
-      // Zero-delay passthrough: no member, no calendar consumed.
-      // Register in zeroDelayTaskIds so the dep-resolution loop above allows
-      // successors to start on the SAME working day (skips the +1 day advance).
-      const uStart = nextWorkingDay(winner.earliestDepEnd, globalHolidays);
-      zeroDelayTaskIds.add(winner.id);
-      taskEndDates[winner.id] = uStart;
+      // Unassigned zero-delay passthrough logic
+      const uState = normalizeState(winner.earliestDepEndState, globalHolidays);
+      taskEndStates[winner.id] = cloneState(uState);
       winner.isDone = true;
       const uRec = existingTasksMap[winner.id] || {};
       tasksOutput.push({
@@ -363,40 +357,44 @@ function runEventDrivenSchedule(
         step_id: winner.stepId,
         plan_id: plan.id,
         plan_team_member_id: null,
-        planned_start_date: format(uStart, 'yyyy-MM-dd'),
-        planned_end_date: format(uStart, 'yyyy-MM-dd'),
+        planned_start_date: format(uState.date, 'yyyy-MM-dd'),
+        planned_end_date: format(uState.date, 'yyyy-MM-dd'),
         status: uRec.status || 'Yet to start',
       });
       continue;
     }
 
-    // Normal scheduling path ──────────────────────────────────────────────
+    // Normal path
     const blocked = memberBlockedSets[assignedMember.id];
-    let finalStart;
-    let finalEnd;
+    let finalStartState, finalEndState, lastWorkedDay;
 
     const manualOverride = manualOverrides[winner.id];
     if (manualOverride) {
-      finalStart = nextWorkingDay(winner.earliestDepEnd, blocked);
-      const mFree = nextWorkingDay(memberFreeDate[assignedMember.id], blocked);
-      if (mFree > finalStart) finalStart = mFree;
-      finalEnd = parseISO(manualOverride);
+      const overrideDate = startOfDay(parseISO(manualOverride));
+      
+      finalStartState = cloneState(winner.actualStartState);
+      if (finalStartState.date > overrideDate) {
+        finalStartState = { date: overrideDate, fraction: 0 };
+      }
+      lastWorkedDay = overrideDate;
+      // Member is free the morning of the day following the override
+      let nextDay = addDays(overrideDate, 1);
+      while (isNonWorkingDay(nextDay, blocked)) nextDay = addDays(nextDay, 1);
+      finalEndState = { date: nextDay, fraction: 0 };
     } else {
       const bandwidth    = assignedMember.bandwidth || 1;
-      const calendarDays = Math.max(1, Math.ceil(winner.effortDays / bandwidth));
-      finalStart = winner.actualStart;
-      finalEnd   = addBusinessDaysWithHolidays(finalStart, calendarDays, blocked);
+      const calendarDays = winner.effortDays / bandwidth;
+      
+      finalStartState = cloneState(winner.actualStartState);
+      const res = addFractionalBusinessDays(finalStartState, calendarDays, blocked);
+      finalEndState = res.newState;
+      lastWorkedDay = res.lastWorkedDay;
     }
 
-    // Lock sticky assignment + update O(1) conflict index
     if (winner.chapterId) lockAssignment(winner.chapterId, winner.role_required, assignedMember);
 
-    // Member's next free slot = working day after finalEnd
-    let nextFree = addDays(finalEnd, 1);
-    while (isNonWorkingDay(nextFree, blocked)) nextFree = addDays(nextFree, 1);
-    memberFreeDate[assignedMember.id] = nextFree;
-
-    taskEndDates[winner.id] = finalEnd;
+    memberFreeState[assignedMember.id] = finalEndState;
+    taskEndStates[winner.id] = finalEndState;
     winner.isDone = true;
 
     const rec = existingTasksMap[winner.id] || {};
@@ -407,8 +405,8 @@ function runEventDrivenSchedule(
       step_id: winner.stepId,
       plan_id: plan.id,
       plan_team_member_id: assignedMember.id,
-      planned_start_date: format(finalStart, 'yyyy-MM-dd'),
-      planned_end_date: format(finalEnd, 'yyyy-MM-dd'),
+      planned_start_date: format(finalStartState.date, 'yyyy-MM-dd'),
+      planned_end_date: format(lastWorkedDay, 'yyyy-MM-dd'),
       status: rec.status || 'Yet to start',
     });
   }
@@ -416,15 +414,10 @@ function runEventDrivenSchedule(
   return tasksOutput;
 }
 
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Generate a full fresh schedule for a plan.
- * All assignments are made opportunistically — no pre-assignment phase.
- */
 export const forecastExecutionTasks = (plan, books, teamMembers, holidaySet) => {
   const memberLeavesMap = {};
   teamMembers.forEach((m) => {
@@ -434,11 +427,6 @@ export const forecastExecutionTasks = (plan, books, teamMembers, holidaySet) => 
   return runEventDrivenSchedule(plan, books, teamMembers, holidaySet, memberLeavesMap);
 };
 
-/**
- * Re-schedule downstream tasks after a user manually edits one end date.
- * Existing assignments are seeded as preservedAssignments so stickiness and
- * the conflict index are correctly inherited.
- */
 export const cascadeAfterEdit = (
   plan, books, existingTasks, teamMembers, holidaySet, overriddenTaskId, newEndDate
 ) => {
@@ -449,7 +437,6 @@ export const cascadeAfterEdit = (
 
   const stepsById = Object.fromEntries((plan.steps || []).map((s) => [s.id, s]));
 
-  // Rebuild the sticky assignment map from existing task records
   const preservedAssignments = {};
   existingTasks.forEach((task) => {
     if (!task.plan_team_member_id) return;
