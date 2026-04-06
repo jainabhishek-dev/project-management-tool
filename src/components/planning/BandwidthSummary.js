@@ -1,11 +1,44 @@
 'use client';
 
 import { useMemo } from 'react';
-import { format, parseISO, differenceInDays } from 'date-fns';
+import { format, parseISO, differenceInDays, isWeekend } from 'date-fns';
 import { Users, AlertCircle, CheckCircle2 } from 'lucide-react';
 import styles from './BandwidthSummary.module.css';
 
-export default function BandwidthSummary({ plan, tasks, books, teamMembers }) {
+/**
+ * Count actual working days between startDate and endDate (inclusive),
+ * excluding weekends and any dates in the plan's holiday set.
+ * Uses an O(1) full-weeks formula for the bulk calculation, then iterates
+ * only the remainder days and the (typically small) holiday set.
+ */
+function countWorkingDays(startDate, endDate, holidaySet) {
+  if (!startDate || !endDate || endDate < startDate) return 0;
+  const totalDays = differenceInDays(endDate, startDate) + 1;
+  const fullWeeks  = Math.floor(totalDays / 7);
+  let weekdays     = fullWeeks * 5;
+  const remainder  = totalDays % 7;
+  const startDOW   = startDate.getDay(); // 0 = Sun, 6 = Sat
+  for (let i = 0; i < remainder; i++) {
+    const dow = (startDOW + i) % 7;
+    if (dow !== 0 && dow !== 6) weekdays++;
+  }
+  // Subtract plan holidays that fall on weekdays within the range
+  if (holidaySet && holidaySet.size > 0) {
+    holidaySet.forEach((dateStr) => {
+      const h = parseISO(dateStr);
+      if (h >= startDate && h <= endDate && !isWeekend(h)) weekdays--;
+    });
+  }
+  return Math.max(weekdays, 0);
+}
+
+export default function BandwidthSummary({ plan, tasks, books, teamMembers, holidays }) {
+  // Build a Set of holiday date strings so countWorkingDays can exclude them.
+  const holidaySet = useMemo(
+    () => new Set((holidays || []).map((h) => h.holiday_date)),
+    [holidays]
+  );
+
   const stepsById = useMemo(() => {
     const map = {};
     (plan.steps || []).forEach((s) => (map[s.id] = s));
@@ -89,8 +122,7 @@ export default function BandwidthSummary({ plan, tasks, books, teamMembers }) {
       let utilizationPct = 0;
 
       if (earliestStart && latestEnd) {
-        const calendarDays = differenceInDays(latestEnd, earliestStart) + 1;
-        workingDays = Math.ceil(calendarDays * (5 / 7));
+        workingDays    = countWorkingDays(earliestStart, latestEnd, holidaySet);
         availableEffort = workingDays * member.bandwidth;
         utilizationPct =
           availableEffort > 0

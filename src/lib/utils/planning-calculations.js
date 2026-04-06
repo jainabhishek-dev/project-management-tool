@@ -116,6 +116,11 @@ function runEventDrivenSchedule(
 
   const taskEndDates = {}; // taskId → Date
 
+  // Unassigned tasks are zero-delay passthroughs: their successors start on
+  // the *same* working day rather than the next, so they don't artificially
+  // push the entire pipeline forward by 1 day per unassigned step.
+  const zeroDelayTaskIds = new Set();
+
   // ── Build task nodes ─────────────────────────────────────────────────────
   const nodes = [];
 
@@ -280,9 +285,17 @@ function runEventDrivenSchedule(
       task.dependencies.forEach((depId) => {
         const depEnd = taskEndDates[depId];
         if (depEnd) {
-          let candidate = addDays(depEnd, 1);
-          while (isNonWorkingDay(candidate, globalHolidays)) candidate = addDays(candidate, 1);
-          if (candidate > earliestDepEnd) earliestDepEnd = candidate;
+          if (zeroDelayTaskIds.has(depId)) {
+            // Zero-delay dep (unassigned step): successor starts on the same
+            // working day — no +1 day overhead added to the pipeline.
+            const candidate = nextWorkingDay(depEnd, globalHolidays);
+            if (candidate > earliestDepEnd) earliestDepEnd = candidate;
+          } else {
+            // Normal dep: successor starts the next working day after dep ends.
+            let candidate = addDays(depEnd, 1);
+            while (isNonWorkingDay(candidate, globalHolidays)) candidate = addDays(candidate, 1);
+            if (candidate > earliestDepEnd) earliestDepEnd = candidate;
+          }
         }
       });
 
@@ -335,7 +348,11 @@ function runEventDrivenSchedule(
     const assignedMember = winner.eligibleMember; // null → unassigned
 
     if (!assignedMember) {
+      // Zero-delay passthrough: no member, no calendar consumed.
+      // Register in zeroDelayTaskIds so the dep-resolution loop above allows
+      // successors to start on the SAME working day (skips the +1 day advance).
       const uStart = nextWorkingDay(winner.earliestDepEnd, globalHolidays);
+      zeroDelayTaskIds.add(winner.id);
       taskEndDates[winner.id] = uStart;
       winner.isDone = true;
       const uRec = existingTasksMap[winner.id] || {};

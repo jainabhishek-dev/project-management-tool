@@ -106,6 +106,7 @@ export default function PlanDetailClient({
             tasks={tasks}
             books={books}
             teamMembers={teamMembers}
+            holidays={holidays}
           />
         )}
       </div>
