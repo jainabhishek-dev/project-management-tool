@@ -76,6 +76,75 @@ export default function ExecutionGrid({
     return map;
   }, [activeTasks]);
 
+  // ── Predictive Analytics (Manpower Deficit Algorithm) ───────────────────
+  const deficitAnalysis = useMemo(() => {
+     if (!plan.target_end_date || activeTasks.length === 0 || !teamMembers) return null;
+     
+     const targetDate = new Date(plan.target_end_date);
+     const planStartDate = new Date(plan.start_date);
+
+     let globalMaxEnd = planStartDate;
+     const roleStats = {};
+
+     // 1. Collect absolute Start and End dates for every role
+     activeTasks.forEach(t => {
+         if (!t.planned_start_date || !t.planned_end_date) return;
+         
+         const assignedMember = memberById[t.plan_team_member_id];
+         if (!assignedMember) return;
+         
+         const role = assignedMember.role;
+         if (!roleStats[role]) {
+            roleStats[role] = {
+               minStart: new Date(t.planned_start_date),
+               maxEnd: new Date(t.planned_end_date),
+               currentBandwidth: 0
+            };
+         }
+         
+         const tStart = new Date(t.planned_start_date);
+         const tEnd = new Date(t.planned_end_date);
+         
+         if (tStart < roleStats[role].minStart) roleStats[role].minStart = tStart;
+         if (tEnd > roleStats[role].maxEnd) roleStats[role].maxEnd = tEnd;
+         if (tEnd > globalMaxEnd) globalMaxEnd = tEnd;
+     });
+
+     if (globalMaxEnd <= targetDate) return { onTrack: true, deficits: [] };
+
+     // 2. Aggregate current bandwidth allocations per role
+     teamMembers.forEach(m => {
+         if (roleStats[m.role]) {
+            roleStats[m.role].currentBandwidth += parseFloat(m.bandwidth) || 1;
+         }
+     });
+
+     // 3. Compute Deficit via Velocity Scalar (Total Days Taken / Allowed Days)
+     const deficits = [];
+     Object.keys(roleStats).forEach(role => {
+         const stats = roleStats[role];
+         if (stats.maxEnd > targetDate) {
+             const daysTaken = (stats.maxEnd - stats.minStart) / (1000 * 60 * 60 * 24);
+             const daysAllowed = (targetDate - stats.minStart) / (1000 * 60 * 60 * 24);
+             
+             if (daysAllowed > 0 && daysTaken > daysAllowed) {
+                 const requiredBandwidth = stats.currentBandwidth * (daysTaken / daysAllowed);
+                 const deficit = requiredBandwidth - stats.currentBandwidth;
+                 if (deficit > 0.05) { // Threshold to prevent noise
+                    deficits.push({ role, additionalHeadcount: deficit });
+                 }
+             }
+         }
+     });
+
+     return {
+        onTrack: false,
+        maxProjected: globalMaxEnd,
+        deficits: deficits.sort((a,b) => b.additionalHeadcount - a.additionalHeadcount)
+     };
+
+  }, [activeTasks, plan.target_end_date, plan.start_date, memberById, teamMembers]);
+
   // ── Status update ───────────────────────────────────────────────────────
   async function handleStatusChange(taskId, newStatus) {
     if (newStatus !== 'Done') {
@@ -311,12 +380,31 @@ export default function ExecutionGrid({
 
   return (
     <div className={styles.container}>
+      {/* ── Predictive Analytics Banner ── */}
+      {deficitAnalysis && !deficitAnalysis.onTrack && deficitAnalysis.deficits && deficitAnalysis.deficits.length > 0 && (
+         <div style={{ background: 'rgba(255, 60, 60, 0.1)', border: '1px solid var(--color-danger)', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px' }}>
+             <h4 style={{ margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--color-danger)', fontSize: '14px' }}>
+                <AlertCircle size={16} /> Projected Timeline Exceeds Target Completion Date
+             </h4>
+             <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text)' }}>
+                Target: <strong>{format(parseISO(plan.target_end_date), 'dd MMM yyyy')}</strong> vs Projected: <strong>{format(deficitAnalysis.maxProjected, 'dd MMM yyyy')}</strong>
+             </p>
+             <div style={{ marginTop: '12px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                 {deficitAnalysis.deficits.map(def => (
+                     <span key={def.role} style={{ background: 'var(--color-danger)', color: '#fff', fontSize: '12px', padding: '4px 8px', borderRadius: '4px', fontWeight: 500 }}>
+                        Missing ~{def.additionalHeadcount.toFixed(1)}x {def.role}
+                     </span>
+                 ))}
+             </div>
+         </div>
+      )}
+
       {/* Timeline bar & Controls */}
       <div className={styles.tableHead}>
         <div className={styles.projectInfo}>
           <Calendar size={18} />
           <span>
-            Timeline: {format(parseISO(plan.start_date), 'dd MMM yyyy')} onwards
+            Timeline: {format(parseISO(plan.start_date), 'dd MMM yyyy')} {plan.target_end_date && (<>→ <b>Target:</b> {format(parseISO(plan.target_end_date), 'dd MMM yyyy')}</>)}
           </span>
         </div>
         <button

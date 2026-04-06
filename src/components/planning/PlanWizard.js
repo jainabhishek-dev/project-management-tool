@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { Plus, Trash2, Check, ChevronRight, ChevronLeft, BookOpen, GripVertical, Calendar as CalendarIcon } from 'lucide-react';
 import BulkUploadButton from './BulkUploadButton';
+import UnifiedBulkUpload from './UnifiedBulkUpload';
 import DatePicker from 'react-multi-date-picker';
 import styles from './PlanWizard.module.css';
 
@@ -63,6 +64,18 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  // ── Global Team Directory Fetch ──
+  const [globalRoster, setGlobalRoster] = useState([]);
+  useEffect(() => {
+    async function fetchRoster() {
+       const { data, error } = await supabase.from('team_master').select('*').order('name');
+       if (!error && data) {
+          setGlobalRoster(data);
+       }
+    }
+    fetchRoster();
+  }, [supabase]);
+
   // ── Drag & Drop States ──
   const [draggedStepIdx, setDraggedStepIdx] = useState(null);
   const [dragOverStepIdx, setDragOverStepIdx] = useState(null);
@@ -74,9 +87,10 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
         name: initialPlanData.plan.name || '',
         type: initialPlanData.plan.type || 'Print',
         start_date: initialPlanData.plan.start_date || new Date().toISOString().split('T')[0],
+        target_end_date: initialPlanData.plan.target_end_date || ''
       };
     }
-    return { name: '', type: 'Print', start_date: new Date().toISOString().split('T')[0] };
+    return { name: '', type: 'Print', start_date: new Date().toISOString().split('T')[0], target_end_date: '' };
   });
 
   const isPrint = info.type !== 'Digital';
@@ -842,6 +856,7 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
             name: info.name.trim(),
             type: info.type,
             start_date: info.start_date,
+            target_end_date: info.target_end_date || null,
             cluster_labels: clusterLabelsPayload,
           })
           .eq('id', initialPlanData.plan.id)
@@ -868,6 +883,7 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
             name: info.name.trim(),
             type: info.type,
             start_date: info.start_date,
+            target_end_date: info.target_end_date || null,
             cluster_labels: clusterLabelsPayload,
           })
           .select()
@@ -1044,6 +1060,20 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
       </div>
 
       <div className={styles.content}>
+        <div style={{ marginBottom: 24 }}>
+          <UnifiedBulkUpload
+            onUploadSteps={handleBulkUploadSteps}
+            onUploadBooks={handleBulkUploadBooks}
+            onUploadPriority={handleBulkUploadPriority}
+            onUploadTeam={handleBulkUploadTeam}
+            onUploadHolidays={handleBulkUploadHolidays}
+            stepHeaders={stepTemplateHeaders}
+            bookHeaders={bookTemplateHeaders}
+            priorityHeaders={priorityTemplateHeaders}
+            teamHeaders={teamTemplateHeaders}
+            holidayHeaders={holidayTemplateHeaders}
+          />
+        </div>
 
         {/* ── STEP 1: Basic Info ─────────────────────────────────────────── */}
         {currentStepIndex === 0 && (
@@ -1066,6 +1096,14 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
               <label className="form-label">Start Date <span style={{ color: 'var(--color-danger)' }}>*</span></label>
               <input type="date" className="form-input" value={info.start_date}
                 onChange={(e) => setInfo({ ...info, start_date: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Target Completion Date</label>
+              <input type="date" className="form-input" value={info.target_end_date}
+                onChange={(e) => setInfo({ ...info, target_end_date: e.target.value })} />
+              <div style={{fontSize: '12px', color: 'var(--color-text-muted)', marginTop: '4px'}}>
+                 This is your firm deadline benchmark to measure the projected grid against.
+              </div>
             </div>
           </div>
         )}
@@ -1395,9 +1433,27 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
                   {teamMembers.map((member) => (
                     <tr key={member._id}>
                       <td>
-                        <input className="form-input" value={member.name}
-                          placeholder="e.g. Rahul Sharma"
-                          onChange={(e) => updateTeamMember(member._id, 'name', e.target.value)} />
+                        <input 
+                          className="form-input" 
+                          value={member.name}
+                          placeholder="Select or type..."
+                          list="global-roster-list"
+                          onChange={(e) => {
+                             const val = e.target.value;
+                             const match = globalRoster.find(u => u.name === val);
+                             if (match && match.role) {
+                                // Auto mapping superpowers
+                                setTeamMembers(prev => prev.map(m => m._id === member._id ? { ...m, name: val, role: match.role } : m));
+                             } else {
+                                updateTeamMember(member._id, 'name', val);
+                             }
+                          }} 
+                        />
+                        <datalist id="global-roster-list">
+                           {globalRoster.map(rosterUser => (
+                               <option key={rosterUser.id} value={rosterUser.name}>{rosterUser.role}</option>
+                           ))}
+                        </datalist>
                       </td>
                       <td>
                         <select className="form-input" value={member.role}
