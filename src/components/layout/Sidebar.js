@@ -10,10 +10,13 @@ import {
   AlertTriangle,
   Sparkles,
   LogOut,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import styles from './Sidebar.module.css';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
+import { useTheme } from './ThemeProvider';
 
 const NAV_ITEMS = [
   { href: '/', label: 'Overview', icon: LayoutDashboard },
@@ -29,6 +32,7 @@ export default function Sidebar({ user }) {
   const pathname = usePathname();
   const router = useRouter();
   const supabase = getSupabaseBrowserClient();
+  const { theme, toggleTheme } = useTheme();
 
   async function handleSignOut() {
     await supabase.auth.signOut();
@@ -73,6 +77,13 @@ export default function Sidebar({ user }) {
             <span className={styles.userEmail}>{user?.email}</span>
           </div>
         </div>
+        <button
+          onClick={toggleTheme}
+          className={styles.themeToggleBtn}
+          title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+        >
+          {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+        </button>
         <button onClick={handleSignOut} className={styles.signOutBtn} title="Sign out">
           <LogOut size={16} />
         </button>

@@ -118,7 +118,49 @@ input, textarea, select, button {
   font-size: inherit;
 }
 
-/* Scrollbar */
+/* ── Light theme overrides ─────────────────────────────────────────────── */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --color-bg-primary:    #f4f4f9;
+  --color-bg-secondary:  #ffffff;
+  --color-bg-tertiary:   #eaeaf2;
+  --color-bg-card:       rgba(255, 255, 255, 0.9);
+  --color-bg-card-hover: rgba(255, 255, 255, 1);
+  --color-bg-glass:      rgba(0, 0, 0, 0.03);
+  --color-bg-input:      rgba(0, 0, 0, 0.04);
+  --color-bg-input-focus: rgba(0, 0, 0, 0.06);
+
+  --color-border:        rgba(0, 0, 0, 0.10);
+  --color-border-hover:  rgba(0, 0, 0, 0.20);
+  --color-border-focus:  rgba(99, 102, 241, 0.5);
+
+  --color-text-primary:   #111118;
+  --color-text-secondary: #50506a;
+  --color-text-muted:     #888898;
+  --color-text-inverse:   #f0f0f5;
+
+  /* Accent, status, and semantic colours stay identical — they work on both themes */
+  --color-accent:         #6366f1;
+  --color-accent-hover:   #4f52dd;
+  --color-accent-subtle:  rgba(99, 102, 241, 0.12);
+
+  --color-success:        #16a34a;
+  --color-success-subtle: rgba(22, 163, 74, 0.12);
+  --color-warning:        #d97706;
+  --color-warning-subtle: rgba(217, 119, 6, 0.12);
+  --color-danger:         #dc2626;
+  --color-danger-subtle:  rgba(220, 38, 38, 0.10);
+  --color-info:           #2563eb;
+  --color-info-subtle:    rgba(37, 99, 235, 0.12);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.10);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.14);
+  --shadow-glow: 0 0 20px rgba(99, 102, 241, 0.20);
+}
+
+/* ── Scrollbar ──────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -129,12 +171,12 @@ input, textarea, select, button {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--color-border-hover);
   border-radius: var(--radius-full);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--color-text-muted);
 }
 
 /* Utility classes */

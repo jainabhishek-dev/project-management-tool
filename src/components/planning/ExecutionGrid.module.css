@@ -143,8 +143,8 @@
     45deg,
     transparent,
     transparent 10px,
-    rgba(255, 255, 255, 0.02) 10px,
-    rgba(255, 255, 255, 0.02) 20px
+    var(--color-bg-glass) 10px,
+    var(--color-bg-glass) 20px
   );
   border-right: 1px solid var(--color-border);
 }
@@ -196,7 +196,7 @@
 }
 
 .taskCard {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--color-bg-glass);
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
@@ -348,23 +348,26 @@
   background: var(--color-bg-glass);
 }
 
-/* Colors for Card Backgrounds based on Status */
+/* Colors for Card Backgrounds based on Status — uses semantic tokens, theme-aware */
 .statusYetToStart {
-  background: #331515 !important; 
-  border-color: rgba(239, 68, 68, 0.4) !important;
+  background: var(--color-danger-subtle) !important;
+  border-color: var(--color-danger) !important;
+  opacity: 0.85;
 }
 
 .statusInProgress {
-  background: #30260C !important;
-  border-color: rgba(234, 179, 8, 0.4) !important;
+  background: var(--color-warning-subtle) !important;
+  border-color: var(--color-warning) !important;
+  opacity: 0.9;
 }
 
 .statusDone {
-  background: #102B1D !important;
-  border-color: rgba(34, 197, 94, 0.35) !important;
+  background: var(--color-success-subtle) !important;
+  border-color: var(--color-success) !important;
 }
 
 .statusSkipped {
-  background: #28282B !important;
-  border-color: rgba(156, 163, 175, 0.3) !important;
+  background: var(--color-bg-tertiary) !important;
+  border-color: var(--color-border-hover) !important;
+  opacity: 0.7;
 }

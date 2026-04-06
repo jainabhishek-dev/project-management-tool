@@ -159,3 +159,22 @@
   color: var(--color-danger);
   background: var(--color-danger-subtle);
 }
+
+.themeToggleBtn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.themeToggleBtn:hover {
+  color: var(--color-accent);
+  background: var(--color-accent-subtle);
+}

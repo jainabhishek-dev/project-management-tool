@@ -7,6 +7,7 @@ import { Plus, Trash2, Check, ChevronRight, ChevronLeft, BookOpen, GripVertical,
 import BulkUploadButton from './BulkUploadButton';
 import UnifiedBulkUpload from './UnifiedBulkUpload';
 import DatePicker from 'react-multi-date-picker';
+import { useTheme } from '@/components/layout/ThemeProvider';
 import styles from './PlanWizard.module.css';
 
 const STEPS_WIZARD = [
@@ -59,6 +60,7 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
   const supabase = getSupabaseBrowserClient();
 
   const isEditMode = !!initialPlanData;
+  const { theme } = useTheme();
 
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -1472,6 +1474,7 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
                           <DatePicker
                             multiple
                             value={member.leaves}
+                            className={theme === 'dark' ? 'rmdp-dark' : ''}
                             onChange={(dateObjects) => {
                                if (!dateObjects) {
                                   updateTeamMember(member._id, 'leaves', []);
