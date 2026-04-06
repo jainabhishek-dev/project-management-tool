@@ -345,9 +345,16 @@ function runEventDrivenSchedule(
     const assignedMember = winner.eligibleMember;
 
     if (!assignedMember) {
-      // Unassigned zero-delay passthrough logic
-      const uState = normalizeState(winner.earliestDepEndState, globalHolidays);
-      taskEndStates[winner.id] = cloneState(uState);
+      // Unassigned tasks do not queue behind each other (no shared bandwidth bottleneck),
+      // but they STILL consume their required effort time on the global calendar.
+      const startState = normalizeState(winner.earliestDepEndState, globalHolidays);
+      
+      const calendarDays = winner.effortDays; // Assume standard 1.0 bandwidth
+      const res = addFractionalBusinessDays(startState, calendarDays, globalHolidays);
+      const endState = res.newState;
+      const lastWorkedDay = res.lastWorkedDay;
+
+      taskEndStates[winner.id] = endState;
       winner.isDone = true;
       const uRec = existingTasksMap[winner.id] || {};
       tasksOutput.push({
@@ -357,8 +364,8 @@ function runEventDrivenSchedule(
         step_id: winner.stepId,
         plan_id: plan.id,
         plan_team_member_id: null,
-        planned_start_date: format(uState.date, 'yyyy-MM-dd'),
-        planned_end_date: format(uState.date, 'yyyy-MM-dd'),
+        planned_start_date: format(startState.date, 'yyyy-MM-dd'),
+        planned_end_date: format(lastWorkedDay, 'yyyy-MM-dd'),
         status: uRec.status || 'Yet to start',
       });
       continue;
