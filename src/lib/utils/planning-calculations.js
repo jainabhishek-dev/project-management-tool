@@ -64,29 +64,31 @@ function assignChapterRoles(books, steps, teamMembers) {
     );
 
     for (const chapter of sortedChapters) {
-      // Track which member IDs are already assigned to this chapter (any role)
-      const assignedMemberIdsForChapter = new Set();
+      // Track which person NAMES are already assigned to this chapter (any role).
+      // Must use name, not id — the same person can have multiple rows in
+      // plan_team_members (e.g. "Anjutha" as both Reviewer 1 and Reviewer 2),
+      // each with a different row id. Tracking by name catches both rows.
+      const assignedNamesForChapter = new Set();
 
       for (const role of rolesNeeded) {
         const candidates = teamMembers.filter((m) => m.role === role);
         if (candidates.length === 0) continue;
 
-        // Sort by estimated load (least loaded first), then filter out
-        // anyone already assigned to this chapter in a different role.
+        // Sort by estimated load (least loaded first), then skip anyone whose
+        // name is already assigned to this chapter in a different role.
         const sortedCandidates = [...candidates].sort(
           (a, b) => memberEstLoad[a.id] - memberEstLoad[b.id]
         );
 
-        // Pick the first candidate who hasn't worked on this chapter yet
         const winner = sortedCandidates.find(
-          (c) => !assignedMemberIdsForChapter.has(c.id)
+          (c) => !assignedNamesForChapter.has(c.name)
         );
 
-        // If no conflict-free candidate is available, leave this slot unassigned
+        // If no conflict-free candidate exists, leave this slot unassigned
         if (!winner) continue;
 
         chapterRoleAssignment[`${chapter.id}-${role}`] = winner;
-        assignedMemberIdsForChapter.add(winner.id);
+        assignedNamesForChapter.add(winner.name);
 
         const chapterEffort = chapterLevelSteps
           .filter((s) => s.role_required === role)
