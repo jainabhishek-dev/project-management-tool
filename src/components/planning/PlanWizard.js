@@ -1438,20 +1438,11 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
                           value={member.name}
                           placeholder="Select or type..."
                           list="global-roster-list"
-                          onChange={(e) => {
-                             const val = e.target.value;
-                             const match = globalRoster.find(u => u.name === val);
-                             if (match && match.role) {
-                                // Auto mapping superpowers
-                                setTeamMembers(prev => prev.map(m => m._id === member._id ? { ...m, name: val, role: match.role } : m));
-                             } else {
-                                updateTeamMember(member._id, 'name', val);
-                             }
-                          }} 
+                          onChange={(e) => updateTeamMember(member._id, 'name', e.target.value)} 
                         />
                         <datalist id="global-roster-list">
                            {globalRoster.map(rosterUser => (
-                               <option key={rosterUser.id} value={rosterUser.name}>{rosterUser.role}</option>
+                               <option key={rosterUser.id} value={rosterUser.name} />
                            ))}
                         </datalist>
                       </td>
