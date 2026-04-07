@@ -42,12 +42,6 @@ export default function ExecutionGrid({
     [plan.steps]
   );
 
-  const uniqueRoles = useMemo(() => {
-    return [...new Set(steps.map(s => s.role_required))].filter(role => 
-      teamMembers.some(m => m.role === role)
-    );
-  }, [steps, teamMembers]);
-
   // Sort books by display_order; chapters within each book by display_order
   const sortedBooks = useMemo(
     () =>
@@ -250,41 +244,6 @@ export default function ExecutionGrid({
     }
   }
 
-  // ── Role Allocation Overrides — full re-schedule cascade ───────────────────
-  async function handleRoleReassignment(chapterId, role, newMemberIdStr) {
-    const newMemberId = newMemberIdStr === "" ? null : newMemberIdStr;
-    const stepIdsForRole = steps.filter(s => s.role_required === role).map(s => s.id);
-    const taskIdsToUpdate = activeTasks.filter(t => t.deliverable_id === chapterId && stepIdsForRole.includes(t.step_id)).map(t => t.id);
-    
-    if (taskIdsToUpdate.length === 0) return;
-
-    // 1. Update activeTasks state directly with new asignee
-    const newActiveTasks = activeTasks.map(t => taskIdsToUpdate.includes(t.id) ? { ...t, plan_team_member_id: newMemberId } : t);
-    
-    // 2. Reproject the entire grid prioritizing these frozen overrides
-    const reprojectedTasks = cascadeAfterEdit(
-      plan,
-      books,
-      newActiveTasks,
-      teamMembers,
-      holidaySet,
-      null, 
-      null
-    );
-
-    setActiveTasks(reprojectedTasks);
-
-    // 3. Save to database
-    for (const t of reprojectedTasks) {
-       await supabase.from('planning_tasks').update({ 
-           status: t.status,
-           planned_start_date: t.planned_start_date,
-           planned_end_date: t.planned_end_date,
-           plan_team_member_id: t.plan_team_member_id
-       }).eq('id', t.id);
-    }
-  }
-
   // ── Inline Click-to-Edit Date Component ─────────────────────────────────
   function ClickToEditDate({ value, onChange, disabled, compact }) {
     const [isEditing, setIsEditing] = useState(false);
@@ -478,16 +437,6 @@ export default function ExecutionGrid({
               <th className={styles.stickySmall}>Cluster</th>
               {isPrint && <th className={styles.stickySmall}>Pages</th>}
 
-              {/* Role Assignment Dropdown Columns */}
-              {uniqueRoles.map((role) => (
-                <th key={`role-header-${role}`} className={styles.stickyRole}>
-                  <div className={styles.stepHeader}>
-                    <p className={styles.stepRole}>Assign</p>
-                    <p className={styles.stepName}>{role}</p>
-                  </div>
-                </th>
-              ))}
-
               {/* Dynamic step columns */}
               {steps.map((step) => {
                 const isBookStep = step.unit_of_calculation === 'Book';
@@ -524,13 +473,6 @@ export default function ExecutionGrid({
                   </td>
                   <td className={`${styles.stickySmall} ${styles.bookHeaderCell}`} style={{ borderRight: 'none' }}></td>
                   {isPrint && <td className={`${styles.stickySmall} ${styles.bookHeaderCell}`} style={{ borderRight: 'none' }}></td>}
-
-                  {/* Empty cells for Role columns on Book row */}
-                  {uniqueRoles.map(role => (
-                    <td key={`book-role-${book.id}-${role}`} className={`${styles.stickyRole} ${styles.bookHeaderCell}`} style={{ borderRight: 'none' }}></td>
-                  ))}
-                  
-                  {/* Empty book spacer for dynamic span */}
                   <td
                     colSpan={steps.length}
                     className={styles.bookHeaderCell}
@@ -566,35 +508,6 @@ export default function ExecutionGrid({
                       {isPrint && (
                         <td className={styles.stickySmall}>{chapter.pages}</td>
                       )}
-
-                      {/* Render Manual Assigment Dropdowns */}
-                      {uniqueRoles.map(role => {
-                         const roleStepsIds = steps.filter(s => s.role_required === role).map(s => s.id);
-                         if (roleStepsIds.length === 0) return <td key={`null-${role}`} className={styles.stickyRole}></td>;
-                         
-                         // Get tasks for this chapter that use this role
-                         const chapterTasksResult = activeTasks.filter(t => t.deliverable_id === chapter.id && roleStepsIds.includes(t.step_id));
-                         const currentAssigned = chapterTasksResult.length > 0 ? chapterTasksResult[0].plan_team_member_id : '';
-
-                         const candidates = teamMembers.filter(m => m.role === role);
-                         const eligibleCandidates = candidates.filter(m => !m.allowed_books || m.allowed_books.length === 0 || m.allowed_books.includes(book.id));
-
-                         return (
-                           <td key={`role-select-${chapter.id}-${role}`} className={styles.stickyRole}>
-                             <select 
-                                className="form-input" 
-                                style={{ minWidth: '100px', padding: '2px 4px', fontSize: '11px', height: '24px' }}
-                                value={currentAssigned || ''}
-                                onChange={(e) => handleRoleReassignment(chapter.id, role, e.target.value)}
-                             >
-                                <option value="">— Auto —</option>
-                                {eligibleCandidates.map(c => (
-                                   <option key={c.id} value={c._id || c.id}>{c.name}</option>
-                                ))}
-                             </select>
-                           </td>
-                         );
-                      })}
 
                       {steps.map((step) => {
                         const isBookStep = step.unit_of_calculation === 'Book';
