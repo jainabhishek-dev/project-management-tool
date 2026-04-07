@@ -255,7 +255,19 @@ function runEventDrivenSchedule(
       if (chapterRoleMap[stickyKey]) return memberById[chapterRoleMap[stickyKey]] || null;
     }
 
-    let candidates = teamMembers.filter((m) => m.role === task.role_required);
+    let candidates = teamMembers.filter((m) => {
+      if (m.role !== task.role_required) return false;
+      
+      const restrictions = m.restricted_item_ids || [];
+      if (restrictions.length > 0) {
+        if (!restrictions.includes(task.chapterId) && !restrictions.includes(task.bookId)) {
+          return false; 
+        }
+      }
+      
+      return true;
+    });
+
     if (candidates.length === 0) return null;
 
     if (task.chapterId) {

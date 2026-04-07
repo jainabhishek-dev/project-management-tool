@@ -307,11 +307,13 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
         name: m.name,
         role: m.role,
         bandwidth: m.bandwidth || 1,
+        team_master_id: m.team_master_id || null,
+        restricted_item_ids: m.restricted_item_ids || [],
         leaves: (m.plan_leaves || []).map(l => l.leave_date),
       }));
     }
     return [
-      { _id: generateId(), name: '', role: 'Creator', bandwidth: 1, leaves: [] },
+      { _id: generateId(), name: '', role: 'Creator', bandwidth: 1, leaves: [], team_master_id: null, restricted_item_ids: [] },
     ];
   });
 
@@ -741,7 +743,8 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
           email: match ? match.email : '',
           role: row['Role'] || ROLE_OPTIONS[0],
           bandwidth: parseFloat(row['Bandwidth']) || 1,
-          leaves: leaves.sort()
+          leaves: leaves.sort(),
+          restricted_item_ids: []
        };
     }).filter(m => m !== null);
 
@@ -796,7 +799,7 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
 
   // ── Step 4 helpers — Team Members ─────────────────────────────────────
   const addTeamMember = () => {
-    setTeamMembers([...teamMembers, { _id: generateId(), name: '', role: ROLE_OPTIONS[0], bandwidth: 1, leaves: [] }]);
+    setTeamMembers([...teamMembers, { _id: generateId(), name: '', role: ROLE_OPTIONS[0], bandwidth: 1, leaves: [], team_master_id: null, restricted_item_ids: [] }]);
   };
 
   const removeTeamMember = (id) => {
@@ -1002,6 +1005,8 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
             name: member.name.trim(),
             role: member.role,
             bandwidth: member.bandwidth,
+            team_master_id: member.team_master_id || null,
+            restricted_item_ids: member.restricted_item_ids || [],
           })
           .select()
           .single();
@@ -1431,6 +1436,7 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
                     <th style={{ minWidth: 160 }}>Name</th>
                     <th style={{ minWidth: 160 }}>Role</th>
                     <th style={{ minWidth: 130 }}>Bandwidth</th>
+                    <th style={{ minWidth: 200 }}>Restrictions</th>
                     <th style={{ minWidth: 260 }}>Leaves</th>
                     <th style={{ width: 40 }}></th>
                   </tr>
@@ -1477,6 +1483,29 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
                           onChange={(e) => updateTeamMember(member._id, 'bandwidth', parseFloat(e.target.value))}>
                           {BANDWIDTH_OPTIONS.map((b) => (
                             <option key={b.value} value={b.value}>{b.label}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <select 
+                          multiple 
+                          className="form-input" 
+                          style={{ height: 'auto', minHeight: '60px', padding: '4px' }}
+                          value={member.restricted_item_ids || []}
+                          title="Hold Ctrl/Cmd to select multiple. Leave blank for no restrictions."
+                          onChange={(e) => {
+                            const values = Array.from(e.target.selectedOptions, option => option.value);
+                            updateTeamMember(member._id, 'restricted_item_ids', values);
+                          }}>
+                          {books.map(b => (
+                            <optgroup key={b._id} label={`Book: ${b.name || 'Unnamed'}`}>
+                              <option value={b._id}>[ Entire Book ]</option>
+                              {b.chapters.map(c => (
+                                <option key={c._id} value={c._id}>
+                                  Chapter: {c.unitNo} {c.unitName}
+                                </option>
+                              ))}
+                            </optgroup>
                           ))}
                         </select>
                       </td>
