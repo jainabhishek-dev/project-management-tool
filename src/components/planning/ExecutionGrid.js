@@ -76,6 +76,14 @@ export default function ExecutionGrid({
     return map;
   }, [activeTasks]);
 
+  // We need to identify unique roles from the steps that have at least one team member
+  const activeRoles = useMemo(() => {
+    const stepRoles = new Set((steps || []).map((s) => s.role_required).filter(Boolean));
+    const memberRoles = new Set((teamMembers || []).map((m) => m.role).filter(Boolean));
+    // Only display roles that have hired members available
+    return Array.from(stepRoles).filter(r => memberRoles.has(r)).sort();
+  }, [steps, teamMembers]);
+
   // ── Predictive Analytics (Manpower Deficit Algorithm) ───────────────────
   const deficitAnalysis = useMemo(() => {
      if (!plan.target_end_date || activeTasks.length === 0 || !teamMembers) return null;
@@ -388,6 +396,52 @@ export default function ExecutionGrid({
     );
   }
 
+  // ── Row-Level Role Overrides ──────────────────────────────────────────────
+  async function handleRoleAssignmentChange(chapterId, roleName, newMemberId) {
+    const memberIdToAssign = newMemberId === '' ? null : newMemberId;
+
+    // 1. Identify all activeTasks for this chapter that require this role
+    let tasksToUpdate = [];
+    activeTasks.forEach(t => {
+       if (t.deliverable_id !== chapterId) return;
+       const stepDef = steps.find(s => s.id === t.step_id);
+       if (stepDef && stepDef.role_required === roleName) {
+           tasksToUpdate.push(t.id);
+       }
+    });
+
+    if (tasksToUpdate.length === 0) return;
+
+    // 2. Build the updated array
+    const newActiveTasks = activeTasks.map(t => 
+       tasksToUpdate.includes(t.id) ? { ...t, plan_team_member_id: memberIdToAssign } : t
+    );
+
+    // 3. Immediately pass to the predictive scheduling engine
+    const reprojectedTasks = cascadeAfterEdit(
+      plan,
+      books,
+      newActiveTasks,
+      teamMembers,
+      holidaySet,
+      null, 
+      null
+    );
+
+    // 4. Update Grid UI
+    setActiveTasks(reprojectedTasks);
+
+    // 5. Persist to Supabase sequentially or batch
+    for (const t of reprojectedTasks) {
+       await supabase.from('planning_tasks').update({ 
+           status: t.status,
+           planned_start_date: t.planned_start_date,
+           planned_end_date: t.planned_end_date,
+           plan_team_member_id: t.plan_team_member_id
+       }).eq('id', t.id);
+    }
+  }
+
   return (
     <div className={styles.container}>
       {/* ── Predictive Analytics Banner ── */}
@@ -437,6 +491,13 @@ export default function ExecutionGrid({
               <th className={styles.stickySmall}>Cluster</th>
               {isPrint && <th className={styles.stickySmall}>Pages</th>}
 
+              {/* Dynamic role allocation columns */}
+              {activeRoles.map(role => (
+                 <th key={`role-header-${role}`} className={styles.stickyRole}>
+                    {role} Allocation
+                 </th>
+              ))}
+
               {/* Dynamic step columns */}
               {steps.map((step) => {
                 const isBookStep = step.unit_of_calculation === 'Book';
@@ -473,6 +534,9 @@ export default function ExecutionGrid({
                   </td>
                   <td className={`${styles.stickySmall} ${styles.bookHeaderCell}`} style={{ borderRight: 'none' }}></td>
                   {isPrint && <td className={`${styles.stickySmall} ${styles.bookHeaderCell}`} style={{ borderRight: 'none' }}></td>}
+                  {activeRoles.map(role => (
+                    <td key={`book-role-${role}`} className={`${styles.stickyRole} ${styles.bookHeaderCell}`} style={{ borderRight: 'none' }}></td>
+                  ))}
                   <td
                     colSpan={steps.length}
                     className={styles.bookHeaderCell}
@@ -508,6 +572,36 @@ export default function ExecutionGrid({
                       {isPrint && (
                         <td className={styles.stickySmall}>{chapter.pages}</td>
                       )}
+
+                      {/* Dropdowns for Role overrides strictly constrained to available hired individuals */}
+                      {activeRoles.map(role => {
+                        const stepWithRole = steps.find(s => s.role_required === role && s.unit_of_calculation !== 'Book');
+                        let currentMemberId = '';
+                        if (stepWithRole) {
+                           const sampleTask = taskMap[`${chapter.id}-${stepWithRole.id}`];
+                           if (sampleTask && sampleTask.plan_team_member_id) {
+                              currentMemberId = sampleTask.plan_team_member_id;
+                           }
+                        }
+                        
+                        const availableMembers = teamMembers.filter(m => m.role === role);
+
+                        return (
+                          <td key={`rolecell-${chapter.id}-${role}`} className={styles.stickyRole}>
+                            <select 
+                              className={styles.roleSelectDropdown}
+                              value={currentMemberId}
+                              onChange={(e) => handleRoleAssignmentChange(chapter.id, role, e.target.value)}
+                            >
+                              {/* Keep an unassigned option if no one is explicitly chosen, so timeline treats it as 0 delay */}
+                              <option value="">Unassigned</option>
+                              {availableMembers.map(m => (
+                                <option key={m.id} value={m.id}>{m.name}</option>
+                              ))}
+                            </select>
+                          </td>
+                        );
+                      })}
 
                       {steps.map((step) => {
                         const isBookStep = step.unit_of_calculation === 'Book';
