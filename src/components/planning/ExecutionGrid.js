@@ -43,8 +43,10 @@ export default function ExecutionGrid({
   );
 
   const uniqueRoles = useMemo(() => {
-    return [...new Set(steps.map(s => s.role_required))];
-  }, [steps]);
+    const rolesFromSteps = [...new Set(steps.map(s => s.role_required))];
+    const rolesWithMembers = new Set(teamMembers.map(m => m.role));
+    return rolesFromSteps.filter(r => rolesWithMembers.has(r));
+  }, [steps, teamMembers]);
 
   // Sort books by display_order; chapters within each book by display_order
   const sortedBooks = useMemo(
