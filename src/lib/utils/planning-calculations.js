@@ -299,6 +299,13 @@ function runEventDrivenSchedule(
 
       const comp = compareStates(aStart, bStart);
       if (comp !== 0) return comp;
+      
+      // Load Balancing Tie-Breaker: If multiple members are bottlenecked 
+      // waiting at the dependency gate simultaneously, pick the one who has 
+      // been idle the longest (earliest freeState) to distribute parallel work.
+      const idleComp = compareStates(aFree, bFree);
+      if (idleComp !== 0) return idleComp;
+
       return b.bandwidth - a.bandwidth;
     })[0];
   }
