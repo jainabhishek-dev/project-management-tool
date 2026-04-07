@@ -47,16 +47,15 @@
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
   transition: all var(--transition-base);
+  white-space: nowrap;
 }
 
 .connector {
-  position: absolute;
-  top: 50%;
-  left: calc(28px + var(--space-3));
-  right: var(--space-4);
+  flex: 1;
   height: 1px;
   background: var(--color-border);
-  z-index: 1;
+  margin-left: var(--space-2);
+  margin-right: var(--space-4);
 }
 
 .content {

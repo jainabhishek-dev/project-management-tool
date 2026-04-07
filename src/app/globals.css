@@ -447,6 +447,13 @@ select.form-input option {
   font-variant-numeric: tabular-nums;
 }
 
+/* Ensure inputs/selects inside tables expand to fit their actual text value instead of breaking */
+.data-table .form-input {
+  width: auto;
+  min-width: 100%;
+  field-sizing: content;
+}
+
 /* Stats cards grid */
 .stats-grid {
   display: grid;
