@@ -1466,21 +1466,30 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
                         </select>
                       </td>
                       <td>
-                        <select 
-                          multiple 
+                        <div 
                           className="form-input" 
-                          style={{ height: '70px', padding: '4px', fontSize: '11px' }}
-                          value={member.allowed_books}
-                          onChange={(e) => {
-                            const selected = Array.from(e.target.selectedOptions, option => option.value);
-                            updateTeamMember(member._id, 'allowed_books', selected);
-                          }}
-                          title="Hold Ctrl/Cmd to select multiple. Leave blank if no restriction."
+                          style={{ height: '70px', overflowY: 'auto', padding: '6px', display: 'flex', flexDirection: 'column', gap: '6px' }}
                         >
+                          <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', marginBottom: '2px', fontWeight: 600 }}>CHECK TO RESTRICT:</div>
                           {books.map(b => (
-                            <option key={b._id} value={b._id}>{b.name || 'Unnamed Book'}</option>
+                            <label key={b._id} style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '11px', lineHeight: 1 }}>
+                               <input 
+                                 type="checkbox" 
+                                 checked={(member.allowed_books || []).includes(b._id)}
+                                 onChange={(e) => {
+                                    const current = new Set(member.allowed_books || []);
+                                    if (e.target.checked) current.add(b._id);
+                                    else current.delete(b._id);
+                                    updateTeamMember(member._id, 'allowed_books', Array.from(current));
+                                 }}
+                                 style={{ margin: 0 }}
+                               />
+                               <span style={{ color: (member.allowed_books || []).includes(b._id) ? 'var(--color-text-primary)' : 'var(--color-text-muted)' }}>
+                                   {b.name || 'Unnamed Book'}
+                               </span>
+                            </label>
                           ))}
-                        </select>
+                        </div>
                       </td>
                       <td>
                         <div className={styles.leavesCell}>
