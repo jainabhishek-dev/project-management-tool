@@ -186,7 +186,7 @@ function runEventDrivenSchedule(
             id: taskId,
             type: 'chapter',
             chapterId: chapter.id,
-            bookId: null,
+            bookId: book.id,
             stepId: step.id,
             bufferDays: step.buffer_days || 0,
             role_required: step.role_required,
