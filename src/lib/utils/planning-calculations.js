@@ -283,6 +283,16 @@ function runEventDrivenSchedule(
 
       const comp = compareStates(aStart, bStart);
       if (comp !== 0) return comp;
+
+      // Tie breaker 1: Prioritize restricted personnel! 
+      // If Anjutha can ONLY do Book 7, assign her Book 7 rather than generalized Deepika.
+      const aRestricted = (a.allowed_books && a.allowed_books.length > 0) ? a.allowed_books.length : Infinity;
+      const bRestricted = (b.allowed_books && b.allowed_books.length > 0) ? b.allowed_books.length : Infinity;
+      
+      if (aRestricted !== bRestricted) {
+         return aRestricted - bRestricted; // Lower number (highly restricted) wins
+      }
+
       return b.bandwidth - a.bandwidth;
     })[0];
   }
