@@ -308,11 +308,10 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
         role: m.role,
         bandwidth: m.bandwidth || 1,
         leaves: (m.plan_leaves || []).map(l => l.leave_date),
-        allowed_books: m.allowed_books || [],
       }));
     }
     return [
-      { _id: generateId(), name: '', role: 'Creator', bandwidth: 1, leaves: [], allowed_books: [] },
+      { _id: generateId(), name: '', role: 'Creator', bandwidth: 1, leaves: [] },
     ];
   });
 
@@ -718,6 +717,8 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
        const name = row['Name']?.trim();
        if (!name) return null;
 
+       const match = globalRoster.find((r) => r.name.toLowerCase() === name.toLowerCase());
+
        let leaves = [];
        const leaveStr = row['Leaves'];
        if (leaveStr) {
@@ -735,7 +736,9 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
 
        return {
           _id: generateId(),
-          name,
+          name: match ? match.name : name,
+          team_master_id: match ? match.id : null,
+          email: match ? match.email : '',
           role: row['Role'] || ROLE_OPTIONS[0],
           bandwidth: parseFloat(row['Bandwidth']) || 1,
           leaves: leaves.sort()
@@ -999,7 +1002,6 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
             name: member.name.trim(),
             role: member.role,
             bandwidth: member.bandwidth,
-            allowed_books: member.allowed_books.length > 0 ? member.allowed_books : null,
           })
           .select()
           .single();
@@ -1429,7 +1431,6 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
                     <th style={{ minWidth: 160 }}>Name</th>
                     <th style={{ minWidth: 160 }}>Role</th>
                     <th style={{ minWidth: 130 }}>Bandwidth</th>
-                    <th style={{ minWidth: 200 }}>Restricted To (Books)</th>
                     <th style={{ minWidth: 260 }}>Leaves</th>
                     <th style={{ width: 40 }}></th>
                   </tr>
@@ -1438,18 +1439,32 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
                   {teamMembers.map((member) => (
                     <tr key={member._id}>
                       <td>
-                        <input 
+                        <select 
                           className="form-input" 
-                          value={member.name}
-                          placeholder="Select or type..."
-                          list="global-roster-list"
-                          onChange={(e) => updateTeamMember(member._id, 'name', e.target.value)} 
-                        />
-                        <datalist id="global-roster-list">
+                          value={member.team_master_id || ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val) {
+                              const rosterUser = globalRoster.find(u => u.id === val);
+                              if (rosterUser) {
+                                updateTeamMember(member._id, 'team_master_id', rosterUser.id);
+                                updateTeamMember(member._id, 'name', rosterUser.name);
+                                updateTeamMember(member._id, 'email', rosterUser.email);
+                              }
+                            } else {
+                              updateTeamMember(member._id, 'team_master_id', null);
+                              updateTeamMember(member._id, 'name', '');
+                              updateTeamMember(member._id, 'email', '');
+                            }
+                          }}
+                        >
+                           <option value="">Select team member...</option>
                            {globalRoster.map(rosterUser => (
-                               <option key={rosterUser.id} value={rosterUser.name} />
+                               <option key={rosterUser.id} value={rosterUser.id}>
+                                   {rosterUser.name} ({rosterUser.email})
+                               </option>
                            ))}
-                        </datalist>
+                        </select>
                       </td>
                       <td>
                         <select className="form-input" value={member.role}
@@ -1462,23 +1477,6 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
                           onChange={(e) => updateTeamMember(member._id, 'bandwidth', parseFloat(e.target.value))}>
                           {BANDWIDTH_OPTIONS.map((b) => (
                             <option key={b.value} value={b.value}>{b.label}</option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>
-                        <select 
-                          multiple 
-                          className="form-input" 
-                          style={{ height: '70px', padding: '4px', fontSize: '11px' }}
-                          value={member.allowed_books}
-                          onChange={(e) => {
-                            const selected = Array.from(e.target.selectedOptions, option => option.value);
-                            updateTeamMember(member._id, 'allowed_books', selected);
-                          }}
-                          title="Hold Ctrl/Cmd to select multiple. Leave blank if no restriction."
-                        >
-                          {books.map(b => (
-                            <option key={b._id} value={b._id}>{b.name || 'Unnamed Book'}</option>
                           ))}
                         </select>
                       </td>

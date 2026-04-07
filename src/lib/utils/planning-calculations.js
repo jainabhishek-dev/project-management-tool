@@ -132,14 +132,15 @@ function runEventDrivenSchedule(
   // chapterRoleMap[`${chapterId}|${role}`] = memberId
   const chapterRoleMap = { ...preservedAssignments };
 
-  // chapterUsedNames[chapterId] = Set<name>
-  const chapterUsedNames = {};
+  // chapterUsedMemberIds[chapterId] = Set<team_master_id>
+  const chapterUsedMemberIds = {};
   Object.entries(preservedAssignments).forEach(([key, mId]) => {
     const chapterId = key.split('|')[0];
     const m = memberById[mId];
     if (!m) return;
-    if (!chapterUsedNames[chapterId]) chapterUsedNames[chapterId] = new Set();
-    chapterUsedNames[chapterId].add(m.name);
+    if (!chapterUsedMemberIds[chapterId]) chapterUsedMemberIds[chapterId] = new Set();
+    const idToTrack = m.team_master_id || m.name; // Fallback to name for legacy data
+    chapterUsedMemberIds[chapterId].add(idToTrack);
   });
 
   // Output timelines track exact ending Fractional State per task
@@ -184,7 +185,7 @@ function runEventDrivenSchedule(
             id: taskId,
             type: 'chapter',
             chapterId: chapter.id,
-            bookId: book.id,
+            bookId: null,
             stepId: step.id,
             bufferDays: step.buffer_days || 0,
             role_required: step.role_required,
@@ -242,8 +243,9 @@ function runEventDrivenSchedule(
     const stickyKey = `${chapterId}|${role}`;
     if (!chapterRoleMap[stickyKey]) {
       chapterRoleMap[stickyKey] = member.id;
-      if (!chapterUsedNames[chapterId]) chapterUsedNames[chapterId] = new Set();
-      chapterUsedNames[chapterId].add(member.name);
+      if (!chapterUsedMemberIds[chapterId]) chapterUsedMemberIds[chapterId] = new Set();
+      const idToTrack = member.team_master_id || member.name; // Fallback to name for legacy data
+      chapterUsedMemberIds[chapterId].add(idToTrack);
     }
   }
 
@@ -253,20 +255,16 @@ function runEventDrivenSchedule(
       if (chapterRoleMap[stickyKey]) return memberById[chapterRoleMap[stickyKey]] || null;
     }
 
-    let candidates = teamMembers.filter((m) => {
-      if (m.role !== task.role_required) return false;
-      if (m.allowed_books && m.allowed_books.length > 0) {
-        if (!m.allowed_books.includes(task.bookId)) return false;
-      }
-      return true;
-    });
-    
+    let candidates = teamMembers.filter((m) => m.role === task.role_required);
     if (candidates.length === 0) return null;
 
     if (task.chapterId) {
-      const usedNames = chapterUsedNames[task.chapterId];
-      if (usedNames && usedNames.size > 0) {
-        candidates = candidates.filter((c) => !usedNames.has(c.name));
+      const usedMemberIds = chapterUsedMemberIds[task.chapterId];
+      if (usedMemberIds && usedMemberIds.size > 0) {
+        candidates = candidates.filter((c) => {
+          const idToTrack = c.team_master_id || c.name;
+          return !usedMemberIds.has(idToTrack);
+        });
         if (candidates.length === 0) return null;
       }
     }
