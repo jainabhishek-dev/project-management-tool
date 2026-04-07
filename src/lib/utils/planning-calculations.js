@@ -101,7 +101,8 @@ function runEventDrivenSchedule(
   memberLeavesMap,
   manualOverrides = {},
   existingTasksMap = {},
-  preservedAssignments = {}
+  preservedAssignments = {},
+  explicitTaskAssignments = {}
 ) {
   const globalHolidays  = holidaySet || new Set();
   const sortedSteps     = [...(plan.steps || [])].sort((a, b) => a.display_order - b.display_order);
@@ -250,6 +251,11 @@ function runEventDrivenSchedule(
   }
 
   function findEligibleMember(task, earliestDepEndState) {
+    if (explicitTaskAssignments[task.id]) {
+      const mem = memberById[explicitTaskAssignments[task.id]];
+      if (mem) return mem;
+    }
+
     if (task.chapterId) {
       const stickyKey = `${task.chapterId}|${task.role_required}`;
       if (chapterRoleMap[stickyKey]) return memberById[chapterRoleMap[stickyKey]] || null;
@@ -468,8 +474,12 @@ export const cascadeAfterEdit = (
   const stepsById = Object.fromEntries((plan.steps || []).map((s) => [s.id, s]));
 
   const preservedAssignments = {};
+  const explicitTaskAssignments = {};
+
   existingTasks.forEach((task) => {
     if (!task.plan_team_member_id) return;
+    if (task.id) explicitTaskAssignments[task.id] = task.plan_team_member_id;
+
     const step = stepsById[task.step_id];
     if (!step) return;
     if (
@@ -500,6 +510,6 @@ export const cascadeAfterEdit = (
 
   return runEventDrivenSchedule(
     plan, books, teamMembers, holidaySet, memberLeavesMap,
-    manualOverrides, existingTasksMap, preservedAssignments
+    manualOverrides, existingTasksMap, preservedAssignments, explicitTaskAssignments
   );
 };
