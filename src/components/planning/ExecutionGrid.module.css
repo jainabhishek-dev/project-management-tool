@@ -83,12 +83,6 @@
   min-width: 90px;
 }
 
-.stickyRole {
-  min-width: 170px;
-  background: rgba(99, 102, 241, 0.05);
-  padding: var(--space-2) var(--space-4) !important;
-}
-
 /* ── Step column header ──────────────────────────────────────────────── */
 
 .stepCol {
