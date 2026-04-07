@@ -101,8 +101,7 @@ function runEventDrivenSchedule(
   memberLeavesMap,
   manualOverrides = {},
   existingTasksMap = {},
-  preservedAssignments = {},
-  explicitTaskAssignments = {}
+  preservedAssignments = {}
 ) {
   const globalHolidays  = holidaySet || new Set();
   const sortedSteps     = [...(plan.steps || [])].sort((a, b) => a.display_order - b.display_order);
@@ -133,15 +132,14 @@ function runEventDrivenSchedule(
   // chapterRoleMap[`${chapterId}|${role}`] = memberId
   const chapterRoleMap = { ...preservedAssignments };
 
-  // chapterUsedMemberIds[chapterId] = Set<team_master_id>
-  const chapterUsedMemberIds = {};
+  // chapterUsedNames[chapterId] = Set<name>
+  const chapterUsedNames = {};
   Object.entries(preservedAssignments).forEach(([key, mId]) => {
     const chapterId = key.split('|')[0];
     const m = memberById[mId];
     if (!m) return;
-    if (!chapterUsedMemberIds[chapterId]) chapterUsedMemberIds[chapterId] = new Set();
-    const idToTrack = m.team_master_id || m.name; // Fallback to name for legacy data
-    chapterUsedMemberIds[chapterId].add(idToTrack);
+    if (!chapterUsedNames[chapterId]) chapterUsedNames[chapterId] = new Set();
+    chapterUsedNames[chapterId].add(m.name);
   });
 
   // Output timelines track exact ending Fractional State per task
@@ -186,7 +184,7 @@ function runEventDrivenSchedule(
             id: taskId,
             type: 'chapter',
             chapterId: chapter.id,
-            bookId: book.id,
+            bookId: null,
             stepId: step.id,
             bufferDays: step.buffer_days || 0,
             role_required: step.role_required,
@@ -244,45 +242,24 @@ function runEventDrivenSchedule(
     const stickyKey = `${chapterId}|${role}`;
     if (!chapterRoleMap[stickyKey]) {
       chapterRoleMap[stickyKey] = member.id;
-      if (!chapterUsedMemberIds[chapterId]) chapterUsedMemberIds[chapterId] = new Set();
-      const idToTrack = member.team_master_id || member.name; // Fallback to name for legacy data
-      chapterUsedMemberIds[chapterId].add(idToTrack);
+      if (!chapterUsedNames[chapterId]) chapterUsedNames[chapterId] = new Set();
+      chapterUsedNames[chapterId].add(member.name);
     }
   }
 
   function findEligibleMember(task, earliestDepEndState) {
-    if (explicitTaskAssignments[task.id]) {
-      const mem = memberById[explicitTaskAssignments[task.id]];
-      if (mem) return mem;
-    }
-
     if (task.chapterId) {
       const stickyKey = `${task.chapterId}|${task.role_required}`;
       if (chapterRoleMap[stickyKey]) return memberById[chapterRoleMap[stickyKey]] || null;
     }
 
-    let candidates = teamMembers.filter((m) => {
-      if (m.role !== task.role_required) return false;
-      
-      const restrictions = m.restricted_item_ids || [];
-      if (restrictions.length > 0) {
-        if (!restrictions.includes(task.chapterId) && !restrictions.includes(task.bookId)) {
-          return false; 
-        }
-      }
-      
-      return true;
-    });
-
+    let candidates = teamMembers.filter((m) => m.role === task.role_required);
     if (candidates.length === 0) return null;
 
     if (task.chapterId) {
-      const usedMemberIds = chapterUsedMemberIds[task.chapterId];
-      if (usedMemberIds && usedMemberIds.size > 0) {
-        candidates = candidates.filter((c) => {
-          const idToTrack = c.team_master_id || c.name;
-          return !usedMemberIds.has(idToTrack);
-        });
+      const usedNames = chapterUsedNames[task.chapterId];
+      if (usedNames && usedNames.size > 0) {
+        candidates = candidates.filter((c) => !usedNames.has(c.name));
         if (candidates.length === 0) return null;
       }
     }
@@ -299,13 +276,6 @@ function runEventDrivenSchedule(
 
       const comp = compareStates(aStart, bStart);
       if (comp !== 0) return comp;
-      
-      // Load Balancing Tie-Breaker: If multiple members are bottlenecked 
-      // waiting at the dependency gate simultaneously, pick the one who has 
-      // been idle the longest (earliest freeState) to distribute parallel work.
-      const idleComp = compareStates(aFree, bFree);
-      if (idleComp !== 0) return idleComp;
-
       return b.bandwidth - a.bandwidth;
     })[0];
   }
@@ -481,12 +451,8 @@ export const cascadeAfterEdit = (
   const stepsById = Object.fromEntries((plan.steps || []).map((s) => [s.id, s]));
 
   const preservedAssignments = {};
-  const explicitTaskAssignments = {};
-
   existingTasks.forEach((task) => {
     if (!task.plan_team_member_id) return;
-    if (task.id) explicitTaskAssignments[task.id] = task.plan_team_member_id;
-
     const step = stepsById[task.step_id];
     if (!step) return;
     if (
@@ -517,6 +483,6 @@ export const cascadeAfterEdit = (
 
   return runEventDrivenSchedule(
     plan, books, teamMembers, holidaySet, memberLeavesMap,
-    manualOverrides, existingTasksMap, preservedAssignments, explicitTaskAssignments
+    manualOverrides, existingTasksMap, preservedAssignments
   );
 };

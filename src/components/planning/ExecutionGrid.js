@@ -244,37 +244,6 @@ export default function ExecutionGrid({
     }
   }
 
-  // ── Assignment change — full re-schedule cascade ────────────────────────
-  async function handleAssignmentChange(taskId, newMemberId) {
-    const newActiveTasks = activeTasks.map((t) =>
-      t.id === taskId ? { ...t, plan_team_member_id: newMemberId || null } : t
-    );
-
-    const updatedTasks = cascadeAfterEdit(
-      plan,
-      sortedBooks,
-      newActiveTasks,
-      teamMembers || [],
-      holidaySet,
-      null,
-      null
-    );
-
-    setActiveTasks(updatedTasks);
-
-    for (const t of updatedTasks) {
-      if (!t.id) continue;
-      await supabase
-        .from('planning_tasks')
-        .update({
-          planned_start_date: t.planned_start_date,
-          planned_end_date: t.planned_end_date,
-          plan_team_member_id: t.plan_team_member_id,
-        })
-        .eq('id', t.id);
-    }
-  }
-
   // ── Inline Click-to-Edit Date Component ─────────────────────────────────
   function ClickToEditDate({ value, onChange, disabled, compact }) {
     const [isEditing, setIsEditing] = useState(false);
@@ -369,26 +338,16 @@ export default function ExecutionGrid({
         <div
           className={`${styles.taskCard} ${statusClass} ${isUnassigned ? styles.taskUnassigned : ''}`}
         >
-          {/* Editable Assignment */}
-          <select
-            className={styles.statusSelect}
-            style={{ fontWeight: 600, color: assignedMember ? 'var(--color-primary)' : 'var(--color-warning)' }}
-            value={task.plan_team_member_id || ''}
-            onChange={(e) => handleAssignmentChange(task.id, e.target.value)}
-            disabled={!task.id}
-          >
-            <option value="">⚠️ Unassigned</option>
-            {(teamMembers || [])
-               .filter(m => m.role === step.role_required)
-               .map(m => (
-                 <option key={m.id} value={m.id}>{m.name.split(' ')[0]}</option>
-               ))
-            }
-            {/* If the current assigned member isn't in the filtered list (e.g. role mismatch or removed), forcefully include them so the select doesn't blank out */}
-            {assignedMember && !(teamMembers || []).some(m => m.id === assignedMember.id && m.role === step.role_required) && (
-                 <option key={assignedMember.id} value={assignedMember.id}>{assignedMember.name.split(' ')[0]}</option>
-            )}
-          </select>
+          {/* Member name */}
+          {assignedMember ? (
+            <span className={styles.taskMember}>
+              {assignedMember.name.split(' ')[0]}
+            </span>
+          ) : (
+            <span className={styles.taskMemberWarn}>
+              <AlertCircle size={10} /> Unassigned
+            </span>
+          )}
 
           {/* Editable status */}
           <select
