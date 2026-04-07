@@ -83,6 +83,11 @@
   min-width: 90px;
 }
 
+.stickyRole {
+  min-width: 140px;
+  background: rgba(99, 102, 241, 0.05);
+}
+
 /* ── Step column header ──────────────────────────────────────────────── */
 
 .stepCol {

@@ -184,7 +184,7 @@ function runEventDrivenSchedule(
             id: taskId,
             type: 'chapter',
             chapterId: chapter.id,
-            bookId: null,
+            bookId: book.id,
             stepId: step.id,
             bufferDays: step.buffer_days || 0,
             role_required: step.role_required,
@@ -253,7 +253,14 @@ function runEventDrivenSchedule(
       if (chapterRoleMap[stickyKey]) return memberById[chapterRoleMap[stickyKey]] || null;
     }
 
-    let candidates = teamMembers.filter((m) => m.role === task.role_required);
+    let candidates = teamMembers.filter((m) => {
+      if (m.role !== task.role_required) return false;
+      if (m.allowed_books && m.allowed_books.length > 0) {
+        if (!m.allowed_books.includes(task.bookId)) return false;
+      }
+      return true;
+    });
+    
     if (candidates.length === 0) return null;
 
     if (task.chapterId) {

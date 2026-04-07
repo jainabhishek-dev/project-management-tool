@@ -308,10 +308,11 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
         role: m.role,
         bandwidth: m.bandwidth || 1,
         leaves: (m.plan_leaves || []).map(l => l.leave_date),
+        allowed_books: m.allowed_books || [],
       }));
     }
     return [
-      { _id: generateId(), name: '', role: 'Creator', bandwidth: 1, leaves: [] },
+      { _id: generateId(), name: '', role: 'Creator', bandwidth: 1, leaves: [], allowed_books: [] },
     ];
   });
 
@@ -998,6 +999,7 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
             name: member.name.trim(),
             role: member.role,
             bandwidth: member.bandwidth,
+            allowed_books: member.allowed_books.length > 0 ? member.allowed_books : null,
           })
           .select()
           .single();
@@ -1427,6 +1429,7 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
                     <th style={{ minWidth: 160 }}>Name</th>
                     <th style={{ minWidth: 160 }}>Role</th>
                     <th style={{ minWidth: 130 }}>Bandwidth</th>
+                    <th style={{ minWidth: 200 }}>Restricted To (Books)</th>
                     <th style={{ minWidth: 260 }}>Leaves</th>
                     <th style={{ width: 40 }}></th>
                   </tr>
@@ -1459,6 +1462,23 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
                           onChange={(e) => updateTeamMember(member._id, 'bandwidth', parseFloat(e.target.value))}>
                           {BANDWIDTH_OPTIONS.map((b) => (
                             <option key={b.value} value={b.value}>{b.label}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <select 
+                          multiple 
+                          className="form-input" 
+                          style={{ height: '70px', padding: '4px', fontSize: '11px' }}
+                          value={member.allowed_books}
+                          onChange={(e) => {
+                            const selected = Array.from(e.target.selectedOptions, option => option.value);
+                            updateTeamMember(member._id, 'allowed_books', selected);
+                          }}
+                          title="Hold Ctrl/Cmd to select multiple. Leave blank if no restriction."
+                        >
+                          {books.map(b => (
+                            <option key={b._id} value={b._id}>{b.name || 'Unnamed Book'}</option>
                           ))}
                         </select>
                       </td>
