@@ -807,8 +807,14 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
     setTeamMembers(teamMembers.filter((m) => m._id !== id));
   };
 
-  const updateTeamMember = (id, field, value) => {
-    setTeamMembers(teamMembers.map((m) => (m._id === id ? { ...m, [field]: value } : m)));
+  const updateTeamMember = (id, fieldOrPayload, singleValue) => {
+    setTeamMembers(teamMembers => teamMembers.map((m) => {
+      if (m._id !== id) return m;
+      if (typeof fieldOrPayload === 'object' && fieldOrPayload !== null) {
+        return { ...m, ...fieldOrPayload };
+      }
+      return { ...m, [fieldOrPayload]: singleValue };
+    }));
   };
 
   const addLeave = (memberId, date) => {
@@ -1453,14 +1459,18 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
                             if (val) {
                               const rosterUser = globalRoster.find(u => u.id === val);
                               if (rosterUser) {
-                                updateTeamMember(member._id, 'team_master_id', rosterUser.id);
-                                updateTeamMember(member._id, 'name', rosterUser.name);
-                                updateTeamMember(member._id, 'email', rosterUser.email);
+                                updateTeamMember(member._id, {
+                                  team_master_id: rosterUser.id,
+                                  name: rosterUser.name,
+                                  email: rosterUser.email
+                                });
                               }
                             } else {
-                              updateTeamMember(member._id, 'team_master_id', null);
-                              updateTeamMember(member._id, 'name', '');
-                              updateTeamMember(member._id, 'email', '');
+                              updateTeamMember(member._id, {
+                                team_master_id: null,
+                                name: '',
+                                email: ''
+                              });
                             }
                           }}
                         >
@@ -1490,7 +1500,7 @@ export default function PlanWizard({ projectId, userId, clusters, initialPlanDat
                         <select 
                           multiple 
                           className="form-input" 
-                          style={{ height: 'auto', minHeight: '60px', padding: '4px' }}
+                          style={{ height: 'auto', minHeight: '60px', maxHeight: '100px', overflowY: 'auto', padding: '4px' }}
                           value={member.restricted_item_ids || []}
                           title="Hold Ctrl/Cmd to select multiple. Leave blank for no restrictions."
                           onChange={(e) => {
