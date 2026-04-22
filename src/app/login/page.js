@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import styles from './login.module.css';
 
-const ALLOWED_DOMAIN = 'leadschool.in';
+const ALLOWED_DOMAINS = ['leadschool.in', 'gmail.com'];
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -32,7 +32,7 @@ export default function LoginPage() {
   function validateEmail(email) {
     if (!email || !email.includes('@')) return 'Please enter a valid email address.';
     const domain = email.split('@')[1];
-    if (domain !== ALLOWED_DOMAIN) return `Only @${ALLOWED_DOMAIN} emails are allowed.`;
+    if (!ALLOWED_DOMAINS.includes(domain)) return `Only @${ALLOWED_DOMAINS.join(' or @')} emails are allowed.`;
     return '';
   }
 
@@ -103,7 +103,7 @@ export default function LoginPage() {
                 id="email"
                 type="email"
                 className={`form-input ${error ? 'form-input-error' : ''}`}
-                placeholder="you@leadschool.in"
+                placeholder="you@leadschool.in or you@gmail.com"
                 value={email}
                 onChange={(e) => {
                   setEmail(e.target.value);
@@ -114,7 +114,7 @@ export default function LoginPage() {
                 autoFocus
               />
               {error && <p className="form-error">{error}</p>}
-              <p className="form-hint">Only @leadschool.in email addresses are allowed.</p>
+              <p className="form-hint">Only @leadschool.in or @gmail.com email addresses are allowed.</p>
             </div>
 
             <button
