@@ -59,7 +59,13 @@ export default function LoginPage() {
           body: JSON.stringify({ email: trimmedEmail, password }),
         });
 
-        const bypassData = await bypassRes.json();
+        let bypassData;
+        try {
+          bypassData = await bypassRes.json();
+        } catch (e) {
+          throw new Error(`Server returned invalid response (${bypassRes.status}). Please check your connection or environment variables.`);
+        }
+
         if (!bypassRes.ok) throw new Error(bypassData.error || 'Bypass failed');
 
         // Now sign in with the password
