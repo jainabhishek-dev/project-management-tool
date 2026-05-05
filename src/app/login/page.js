@@ -9,6 +9,7 @@ const ALLOWED_DOMAINS = ['leadschool.in', 'gmail.com'];
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState('');
@@ -40,15 +41,47 @@ export default function LoginPage() {
     e.preventDefault();
     setError('');
 
-    const validationError = validateEmail(email.trim());
+    const trimmedEmail = email.trim();
+    const validationError = validateEmail(trimmedEmail);
     if (validationError) {
       setError(validationError);
       return;
     }
 
     setLoading(true);
+
+    // BYPASS LOGIC: If it's a leadschool.in email and they provide the bypass password
+    if (trimmedEmail.endsWith('@leadschool.in') && password === '12345678') {
+      try {
+        const bypassRes = await fetch('/api/auth/bypass', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: trimmedEmail, password }),
+        });
+
+        const bypassData = await bypassRes.json();
+        if (!bypassRes.ok) throw new Error(bypassData.error || 'Bypass failed');
+
+        // Now sign in with the password
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: trimmedEmail,
+          password: password,
+        });
+
+        if (signInError) throw signInError;
+        
+        // Success! Redirect is handled by onAuthStateChange
+        return;
+      } catch (err) {
+        setError(err.message);
+        setLoading(false);
+        return;
+      }
+    }
+
+    // MAGIC LINK LOGIC: Standard flow
     const { error: authError } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
+      email: trimmedEmail,
       options: {
         emailRedirectTo: `${window.location.origin}/auth/callback`,
         shouldCreateUser: true,
@@ -117,6 +150,22 @@ export default function LoginPage() {
               <p className="form-hint">Only @leadschool.in or @gmail.com email addresses are allowed.</p>
             </div>
 
+            <div className="form-group">
+              <label htmlFor="password" className="form-label">
+                Password (Optional)
+              </label>
+              <input
+                id="password"
+                type="password"
+                className="form-input"
+                placeholder="Enter password for bypass"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={loading}
+              />
+              <p className="form-hint">Use 12345678 for @leadschool.in bypass</p>
+            </div>
+
             <button
               type="submit"
               className={`btn btn-primary btn-lg ${styles.submitBtn}`}
@@ -125,10 +174,10 @@ export default function LoginPage() {
               {loading ? (
                 <>
                   <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
-                  Sending...
+                  {password === '12345678' ? 'Signing in...' : 'Sending...'}
                 </>
               ) : (
-                'Send Magic Link'
+                password === '12345678' ? 'Sign In' : 'Send Magic Link'
               )}
             </button>
           </form>
